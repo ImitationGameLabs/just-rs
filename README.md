@@ -80,12 +80,13 @@ Wire-level request/response types with serde derives, plus a thin async client a
 HTTP transport helpers. Use these when you need full control over a specific provider's wire
 protocol, or as building blocks for your own client layer or agent framework.
 
-| Crate                | Description                                                                |
-| -------------------- | -------------------------------------------------------------------------- |
-| `just-deepseek`      | DeepSeek API client + wire-level types — chat completions, models, balance |
-| `just-openai-compat` | OpenAI-compatible API client + wire-level types — chat completions, models |
+| Crate                    | Description                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `just-deepseek`          | DeepSeek API client + wire-level types — chat completions, models, balance     |
+| `just-openai-compat`     | OpenAI-compatible API client + wire-level types — chat completions, models     |
+| `just-openai-responses`  | OpenAI Responses API client + wire-level types — responses, streaming, tools   |
 
-Bindings for OpenAI, Google, xAI, Anthropic, and others are planned but deferred until needed. If you urgently need a specific provider, feel free to open an issue so we can prioritize it.
+Bindings for Google, xAI, Anthropic, and others are planned but deferred until needed. If you urgently need a specific provider, feel free to open an issue so we can prioritize it.
 
 ## Documentation
 

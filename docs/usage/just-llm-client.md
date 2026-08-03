@@ -8,7 +8,7 @@ The workspace intentionally keeps three adjacent but different entry points:
 
 | Entry point                                                            | Use it when                                                                                       | What you get                                                 |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Provider type crate (`just-deepseek`, `just-openai-compat`)            | You want direct access to provider wire DTOs and do not need a shared abstraction                 | Serde-serializable request/response types                    |
+| Provider type crate (`just-deepseek`, `just-openai-compat`, `just-openai-responses`) | You want direct access to provider wire DTOs and do not need a shared abstraction | Serde-serializable request/response types |
 | Direct backend construction (`DeepSeekBackend`, `OpenAiCompatBackend`) | You know the provider family in code but still want `just-llm-client` normalized types and traits | Lowest-noise path into the `just-llm-client` layer           |
 | `BackendFactory`                                                      | You want to dispatch a family string to a backend constructor at runtime                          | A shared backend built from `(family, http, key, base_url)`  |
 

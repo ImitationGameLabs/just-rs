@@ -99,8 +99,10 @@ JUST_LLM_OPENAI_COMPAT_MODEL=gpt-4.1-mini \
 | --------------------- | ---------------------------------------------------------- |
 | [**just-llm-client**] | Provider-neutral LLM client — recommended entry point      |
 | [just-deepseek]       | Wire-level DTOs and transport helpers for the DeepSeek API |
+| [just-openai-responses] | Wire-level DTOs and transport helpers for the OpenAI Responses API |
 | [just-common]         | Shared HTTP transport, SSE parsing, and error types        |
 
 [**just-llm-client**]: https://crates.io/crates/just-llm-client
 [just-deepseek]: https://crates.io/crates/just-deepseek
+[just-openai-responses]: https://crates.io/crates/just-openai-responses
 [just-common]: https://crates.io/crates/just-common

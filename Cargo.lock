@@ -756,6 +756,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "just-openai-responses"
+version = "0.1.0"
+dependencies = [
+ "dotenvy",
+ "futures-core",
+ "futures-util",
+ "just-common",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "wiremock",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

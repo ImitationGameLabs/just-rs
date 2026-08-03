@@ -96,8 +96,10 @@ cargo run -p just-deepseek --example tool_calling
 | --------------------- | ---------------------------------------------------------------- |
 | [**just-llm-client**] | Provider-neutral LLM client — recommended entry point            |
 | [just-openai-compat]  | Wire-level DTOs and transport helpers for OpenAI-compatible APIs |
+| [just-openai-responses] | Wire-level DTOs and transport helpers for the OpenAI Responses API |
 | [just-common]         | Shared HTTP transport, SSE parsing, and error types              |
 
 [**just-llm-client**]: https://crates.io/crates/just-llm-client
 [just-openai-compat]: https://crates.io/crates/just-openai-compat
+[just-openai-responses]: https://crates.io/crates/just-openai-responses
 [just-common]: https://crates.io/crates/just-common

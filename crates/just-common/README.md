@@ -22,7 +22,9 @@ This crate provides the internal building blocks used by the just-agent provider
 | [**just-llm-client**] | Provider-neutral LLM client — the recommended entry point |
 | [just-deepseek]       | Rust client for the DeepSeek API                          |
 | [just-openai-compat]  | Rust client for any OpenAI-compatible API                 |
+| [just-openai-responses] | Rust client for the OpenAI Responses API                |
 
 [**just-llm-client**]: https://crates.io/crates/just-llm-client
 [just-deepseek]: https://crates.io/crates/just-deepseek
 [just-openai-compat]: https://crates.io/crates/just-openai-compat
+[just-openai-responses]: https://crates.io/crates/just-openai-responses

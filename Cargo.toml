@@ -4,6 +4,7 @@ members = [
   "crates/just-common",
   "crates/providers/just-deepseek",
   "crates/providers/just-openai-compat",
+  "crates/providers/just-openai-responses",
 ]
 
 resolver = "3"
@@ -23,6 +24,7 @@ just-llm-client = { path = "crates/just-llm-client", version = "0.2.0" }
 # Providers
 just-deepseek = { path = "crates/providers/just-deepseek", version = "0.2.0" }
 just-openai-compat = { path = "crates/providers/just-openai-compat", version = "0.2.0" }
+just-openai-responses = { path = "crates/providers/just-openai-responses", version = "0.1.0" }
 
 anyhow = "1.0.102"
 async-trait = "0.1.89"

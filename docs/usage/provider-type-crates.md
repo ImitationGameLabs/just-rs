@@ -1,9 +1,10 @@
 # Provider type crates
 
-The workspace includes two concrete provider type crates:
+The workspace includes three concrete provider type crates:
 
 - `just-deepseek`
 - `just-openai-compat`
+- `just-openai-responses`
 
 These crates provide wire-level DTOs, HTTP transport helpers, and thin client wrappers that closely
 mirror the upstream provider API shapes.
@@ -19,6 +20,15 @@ If you want a provider-neutral abstraction, see [just-llm-client](just-llm-clien
 ## OpenAI-compatible types
 
 - `types::chat` — Chat completion request/response types, messages, tool definitions
+- `types::models` — Model listing response types
+
+## OpenAI Responses types
+
+- `types::request` — Response creation and compaction request types
+- `types::response` — The `Response` object, usage, and error details
+- `types::item` — Input and output items (messages, function calls, reasoning, ...)
+- `types::event` — SSE streaming events
+- `types::tool` — Tool definitions (function, custom, web search, file search)
 - `types::models` — Model listing response types
 
 ## Usage
@@ -52,6 +62,11 @@ JUST_LLM_DEEPSEEK_MODEL=deepseek-v4-flash
 JUST_LLM_OPENAI_COMPAT_API_KEY=your-openai-compatible-api-key
 JUST_LLM_OPENAI_COMPAT_BASE_URL=https://your-compatible-endpoint/v1
 JUST_LLM_OPENAI_COMPAT_MODEL=gpt-4.1-mini
+
+# OpenAI Responses examples
+JUST_LLM_OPENAI_RESPONSES_API_KEY=your-openai-api-key
+#JUST_LLM_OPENAI_RESPONSES_BASE_URL=https://api.openai.com/v1
+JUST_LLM_OPENAI_RESPONSES_MODEL=gpt-5.6
 ```
 
 ## Runnable examples
@@ -59,6 +74,11 @@ JUST_LLM_OPENAI_COMPAT_MODEL=gpt-4.1-mini
 ```bash
 cargo run -p just-llm-client --example deepseek_simple_chat
 cargo run -p just-llm-client --example openai_compat_simple_chat
+cargo run -p just-openai-responses --example responses_chat_completion
+cargo run -p just-openai-responses --example responses_streaming
+cargo run -p just-openai-responses --example responses_tool_calling
 ```
 
-Those examples use `just-llm-client` backends that internally serialize into the provider DTOs from these crates.
+The `deepseek_simple_chat` and `openai_compat_simple_chat` examples use `just-llm-client`
+backends that internally serialize into the provider DTOs from these crates; the
+`responses_*` examples use the `just-openai-responses` client directly.

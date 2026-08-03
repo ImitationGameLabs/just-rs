@@ -12,7 +12,8 @@ AI Agent working guide. This document provides code structure and decision rules
 │   ├── just-llm-client/  # Provider-neutral LLM client traits, types, and adapters
 │   └── providers/        # Backend-specific provider crates
 │       ├── just-deepseek/         # DeepSeek provider SDK
-│       └── just-openai-compat/    # OpenAI-compatible provider SDK
+│       ├── just-openai-compat/    # OpenAI-compatible provider SDK
+│       └── just-openai-responses/ # OpenAI Responses API provider SDK
 ├── docs/                  # Project documentation
 └── nix/
       ├── common.nix       # Core config (crate paths, dependencies)

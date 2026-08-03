@@ -1,0 +1,27 @@
+[package]
+name = "just-openai-responses"
+description = "OpenAI Responses API client and wire-level types"
+readme = "README.md"
+edition = "2024"
+version = "0.1.0"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords = ["openai", "llm", "ai", "responses"]
+categories = ["api-bindings"]
+
+[dependencies]
+just-common = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures-core = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+dotenvy = { workspace = true }
+futures-util = { workspace = true }
+wiremock = { workspace = true }
+
+[[test]]
+name = "client"
