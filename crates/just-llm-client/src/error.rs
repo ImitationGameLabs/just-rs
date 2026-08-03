@@ -183,6 +183,10 @@ pub enum BackendError {
     ///
     /// Carries the backend family for attribution and the provider error as a boxed source (see
     /// [`BoxError`] for why this is not a concrete `ProviderError`).
+    ///
+    /// `Display` inlines the source chain, so plain `{}` yields a single informative line. Any
+    /// provider response body carried by the source is recoverable via
+    /// [`captured_body`](crate::captured_body), not via `Display` or `{:?}`.
     #[error("{family} backend error: {source}")]
     Provider {
         /// Backend family.
@@ -213,5 +217,29 @@ impl BackendError {
             family,
             source: Box::new(source),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BackendError;
+    use crate::captured_body;
+    use just_common::error::{ProviderError, TransportError};
+    use reqwest::StatusCode;
+
+    #[test]
+    fn captured_body_traverses_backend_error() {
+        let te = TransportError::HttpStatus {
+            status: StatusCode::BAD_REQUEST,
+            body: r#"{"error":"context_length_exceeded"}"#.into(),
+        };
+        let be = BackendError::provider("openai-compatible", ProviderError::Transport(te));
+
+        // captured_body must cross the BoxError indirection: BackendError::Provider
+        // -> boxed ProviderError -> TransportError -> HttpStatus.
+        assert_eq!(
+            captured_body(&be),
+            Some(r#"{"error":"context_length_exceeded"}"#)
+        );
     }
 }

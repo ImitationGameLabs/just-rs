@@ -76,7 +76,7 @@ pub use capability::{
     Balance, CapabilityNegotiation, ChatCompletionStream, Identifiable, ModelCatalog,
 };
 pub use error::{BackendConstructError, BackendError, Capability, CapabilityError};
-pub use just_common::error::{ProviderError, TransportError};
+pub use just_common::error::{ProviderError, TransportError, captured_body};
 pub use just_common::transport::http::{build_client, endpoint_url, ensure_success, parse_json};
 pub use just_common::transport::sse::JsonEventStream;
 pub use provider::LlmBackend;
