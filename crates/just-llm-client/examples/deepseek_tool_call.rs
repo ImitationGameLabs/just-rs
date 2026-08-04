@@ -3,9 +3,7 @@ mod common;
 use just_llm_client::{
     LlmBackend,
     provider::DeepSeekBackend,
-    types::chat::{
-        ChatCompletionRequest, ChatMessage, FunctionDefinition, ToolDefinition, ToolType,
-    },
+    types::generation::{FunctionDefinition, GenerationRequest, Message, ToolDefinition, ToolType},
 };
 
 #[tokio::main]
@@ -41,35 +39,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     }];
 
-    let request =
-        ChatCompletionRequest::new(model, vec![ChatMessage::user("What is 12345 + 67890?")])
-            .with_system_prompt("You are a helpful math assistant. Use the provided tools.")
-            .with_tools(tools);
+    let request = GenerationRequest::new(model, vec![Message::user("What is 12345 + 67890?")])
+        .with_system_prompt("You are a helpful math assistant. Use the provided tools.")
+        .with_tools(tools);
 
     println!("--- request 1 ---");
     println!("  [system] You are a helpful math assistant. Use the provided tools.");
     println!("  [user] What is 12345 + 67890?");
 
-    let response = backend.chat_completion(request).await?;
+    let response = backend.generate(request).await?;
     println!("\n--- response 1 ---");
-    if let Some(rc) = response.first_choice_reasoning_content() {
-        println!("  [reasoning] {rc}");
+    if let Some(text) = response.reasoning().and_then(|r| r.text.as_deref()) {
+        println!("  [reasoning] {text}");
     }
     let response_model = response.model.clone();
-    let reasoning = response.first_choice_reasoning_content().map(String::from);
+    let reasoning = response.reasoning().cloned();
 
-    let tool_calls = response
-        .first_choice_tool_calls()
-        .expect("expected tool calls in response");
-
+    let tool_calls = response.tool_calls();
     let call = &tool_calls[0];
-    println!(
-        "  [tool call] {}({})",
-        call.function.name, call.function.arguments
-    );
+    println!("  [tool call] {}({})", call.name, call.arguments);
 
     // Execute the tool locally.
-    let args: serde_json::Value = serde_json::from_str(&call.function.arguments)?;
+    let args: serde_json::Value = serde_json::from_str(&call.arguments)?;
     let x: f64 = args["x"].as_f64().expect("x is not a number");
     let y: f64 = args["y"].as_f64().expect("y is not a number");
     let result = x + y;
@@ -77,18 +68,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  [tool result] {x} + {y} = {result}");
 
     // Build the assistant message, preserving reasoning content for DeepSeek thinking mode.
-    let assistant_msg = match reasoning {
-        Some(rc) => ChatMessage::assistant_tool_calls_with_reasoning(tool_calls.to_vec(), rc),
-        None => ChatMessage::assistant_tool_calls(tool_calls.to_vec()),
-    };
+    let assistant_msg = Message::assistant_tool_calls(None, tool_calls.to_vec(), reasoning);
 
     // Send the tool result back for a final answer.
-    let follow_up = ChatCompletionRequest::new(
+    let follow_up = GenerationRequest::new(
         response_model,
         vec![
-            ChatMessage::user("What is 12345 + 67890?"),
+            Message::user("What is 12345 + 67890?"),
             assistant_msg,
-            ChatMessage::tool_result(serde_json::json!({"result": result}).to_string(), &call.id),
+            Message::tool(serde_json::json!({"result": result}).to_string(), &call.id),
         ],
     )
     .with_system_prompt("You are a helpful math assistant. Use the provided tools.")
@@ -110,13 +98,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }]);
 
     println!("\n--- response 2 ---");
-    let final_response = backend.chat_completion(follow_up).await?;
-    if let Some(rc) = final_response.first_choice_reasoning_content() {
-        println!("  [reasoning] {rc}");
+    let final_response = backend.generate(follow_up).await?;
+    if let Some(text) = final_response.reasoning().and_then(|r| r.text.as_deref()) {
+        println!("  [reasoning] {text}");
     }
     println!(
         "  [assistant] {}",
-        final_response.first_choice_content().unwrap_or_default()
+        final_response.text().unwrap_or_default()
     );
 
     Ok(())

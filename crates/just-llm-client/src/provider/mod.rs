@@ -1,7 +1,11 @@
+#[cfg(feature = "anthropic")]
+mod anthropic;
 #[cfg(feature = "deepseek")]
 mod deepseek;
 #[cfg(feature = "openai-compat")]
 mod openai_compat;
+#[cfg(feature = "responses")]
+mod openai_responses;
 /// Request validation helpers for building custom backends.
 pub mod validation;
 
@@ -12,34 +16,66 @@ use async_trait::async_trait;
 use self::validation::{into_validated_streaming_request, validate_non_streaming_request};
 use crate::{
     CapabilityNegotiation, Identifiable,
-    capability::ChatCompletionStream,
+    capability::GenerationStream,
     error::{BackendConstructError, BackendError},
-    types::chat::{ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ToolDefinition},
+    types::generation::{GenerationRequest, GenerationResponse, Message, ToolDefinition},
 };
 
+#[cfg(feature = "anthropic")]
+pub use anthropic::AnthropicBackend;
 #[cfg(feature = "deepseek")]
 pub use deepseek::DeepSeekBackend;
 #[cfg(feature = "openai-compat")]
 pub use openai_compat::OpenAiCompatBackend;
+#[cfg(feature = "responses")]
+pub use openai_responses::OpenAiResponsesBackend;
+
+use futures_core::Stream;
+
+use crate::types::generation::GenerationEvent;
+
+/// Flattens a stream of provider-native items into a stream of normalized generation events.
+///
+/// Each provider item may map to zero or more events (e.g. a chat chunk carrying both a text delta
+/// and a finish reason). Errors pass through unchanged. Shared by the backends whose streaming
+/// conversion is stateless per item.
+pub(crate) fn flatten_events<T, F>(
+    stream: impl Stream<Item = Result<T, just_common::error::TransportError>> + Send + 'static,
+    convert: F,
+) -> std::pin::Pin<
+    Box<dyn Stream<Item = Result<GenerationEvent, just_common::error::TransportError>> + Send>,
+>
+where
+    T: 'static,
+    F: Fn(T) -> Vec<GenerationEvent> + Send + 'static,
+{
+    Box::pin(futures_util::StreamExt::flat_map(stream, move |item| {
+        let events: Vec<Result<GenerationEvent, just_common::error::TransportError>> = match item {
+            Ok(item) => convert(item).into_iter().map(Ok).collect(),
+            Err(e) => vec![Err(e)],
+        };
+        futures_util::stream::iter(events)
+    }))
+}
 
 /// Unified trait for the runtime-selected LLM provider surface.
 ///
-/// Combines chat completion operations (prepare/send/chat_completion and their streaming
-/// counterparts) with identity and capability negotiation. All types are concrete (no associated
-/// types) for object safety.
+/// Combines generation operations (prepare/send/generate and their streaming counterparts) with
+/// identity and capability negotiation. All types are concrete (no associated types) for object
+/// safety.
 ///
-/// # Why `chat_completion` and `stream_chat_completion` are default impls
+/// # Why `generate` and `stream_generate` are default impls
 ///
 /// They compose [`prepare`](LlmBackend::prepare) + [`send`](LlmBackend::send) +
 /// [`parse`](LlmBackend::parse). The provider-specific deserialization lives in the required
 /// [`parse`](LlmBackend::parse) / [`parse_streaming`](LlmBackend::parse_streaming) methods, which
 /// each backend implements against its own provider-native type and lifts to normalized types via
-/// `From`. Override the defaults only for non-HTTP backends that cannot express a completion as
+/// `From`. Override the defaults only for non-HTTP backends that cannot express a generation as
 /// prepare/send/parse.
 ///
-/// Callers typically access this through [`ChatClient`](crate::ChatClient) which implements
-/// [`Deref`](std::ops::Deref) to `dyn LlmBackend`, so all methods are available without importing
-/// the trait explicitly.
+/// Callers typically access this through [`GenerationClient`](crate::GenerationClient) which
+/// implements [`Deref`](std::ops::Deref) to `dyn LlmBackend`, so all methods are available without
+/// importing the trait explicitly.
 ///
 /// # Prepare-send-parse pattern
 ///
@@ -64,7 +100,7 @@ pub use openai_compat::OpenAiCompatBackend;
 ///     // back off, then re-send a fresh clone of `prepared` ...
 /// }
 /// // Deserialize with the right backend (dyn dispatch on `self`).
-/// let completion = backend.parse(response).await?;
+/// let generation = backend.parse(response).await?;
 /// ```
 #[async_trait]
 pub trait LlmBackend: Identifiable + CapabilityNegotiation + Send + Sync {
@@ -75,14 +111,14 @@ pub trait LlmBackend: Identifiable + CapabilityNegotiation + Send + Sync {
     ///
     /// This is a synchronous operation — it validates and serializes the request but performs no
     /// IO.
-    fn prepare(&self, request: ChatCompletionRequest) -> Result<reqwest::Request, BackendError>;
+    fn prepare(&self, request: GenerationRequest) -> Result<reqwest::Request, BackendError>;
 
     /// Prepare a streaming request for later execution.
     ///
     /// Same as [`prepare`](LlmBackend::prepare) but forces `stream = true` on the request.
     fn prepare_streaming(
         &self,
-        request: ChatCompletionRequest,
+        request: GenerationRequest,
     ) -> Result<reqwest::Request, BackendError>;
 
     /// Send a prepared request and return the raw HTTP response.
@@ -91,11 +127,11 @@ pub trait LlmBackend: Identifiable + CapabilityNegotiation + Send + Sync {
     /// statuses (4xx, 5xx) themselves. This allows inspecting response headers (e.g.
     /// `retry-after`, `x-ratelimit-*`) before consuming the body.
     ///
-    /// For automatic status checking and deserialization, use [`chat_completion`](LlmBackend::chat_completion)
-    /// or [`stream_chat_completion`](LlmBackend::stream_chat_completion) instead.
+    /// For automatic status checking and deserialization, use [`generate`](LlmBackend::generate)
+    /// or [`stream_generate`](LlmBackend::stream_generate) instead.
     async fn send(&self, prepared: reqwest::Request) -> Result<reqwest::Response, BackendError>;
 
-    /// Parse a raw response into a normalized non-streaming completion.
+    /// Parse a raw response into a normalized non-streaming generation.
     ///
     /// Implementations must check HTTP status before deserializing (use
     /// [`ensure_success`](just_common::transport::http::ensure_success)); [`send`](LlmBackend::send)
@@ -104,12 +140,9 @@ pub trait LlmBackend: Identifiable + CapabilityNegotiation + Send + Sync {
     /// Pair with [`prepare`](LlmBackend::prepare) + [`send`](LlmBackend::send) when you need
     /// the raw response in hand, e.g. to inspect `retry-after` / `x-ratelimit-*` headers, or
     /// to re-send a clone of the prepared request (via try_clone) for retry, before deserializing.
-    async fn parse(
-        &self,
-        response: reqwest::Response,
-    ) -> Result<ChatCompletionResponse, BackendError>;
+    async fn parse(&self, response: reqwest::Response) -> Result<GenerationResponse, BackendError>;
 
-    /// Parse a raw response into a normalized streaming chunk stream.
+    /// Parse a raw response into a normalized streaming event stream.
     ///
     /// Implementations must check HTTP status first (use
     /// [`ensure_success`](just_common::transport::http::ensure_success)); the SSE parser assumes a
@@ -117,34 +150,34 @@ pub trait LlmBackend: Identifiable + CapabilityNegotiation + Send + Sync {
     async fn parse_streaming(
         &self,
         response: reqwest::Response,
-    ) -> Result<ChatCompletionStream, BackendError>;
+    ) -> Result<GenerationStream, BackendError>;
 
-    /// Execute a non-streaming chat completion: validate -> prepare -> send -> parse.
+    /// Execute a non-streaming generation: validate -> prepare -> send -> parse.
     ///
     /// Default impl; override only for non-HTTP backends. Validation is repeated here and again
     /// inside [`prepare`](LlmBackend::prepare) deliberately: this entry point attributes
-    /// invalid-request errors to `chat_completion`, while `prepare` attributes them to itself,
+    /// invalid-request errors to `generate`, while `prepare` attributes them to itself,
     /// so both messages stay correct.
-    async fn chat_completion(
+    async fn generate(
         &self,
-        request: ChatCompletionRequest,
-    ) -> Result<ChatCompletionResponse, BackendError> {
-        validate_non_streaming_request(&request, "chat_completion", "stream_chat_completion")?;
+        request: GenerationRequest,
+    ) -> Result<GenerationResponse, BackendError> {
+        validate_non_streaming_request(&request, "generate", "stream_generate")?;
         let prepared = self.prepare(request)?;
         let response = self.send(prepared).await?;
         self.parse(response).await
     }
 
-    /// Execute a streaming chat completion: validate -> prepare_streaming -> send -> parse_streaming.
+    /// Execute a streaming generation: validate -> prepare_streaming -> send -> parse_streaming.
     ///
     /// Default impl; override only for non-HTTP backends. Validation is repeated here and again
     /// inside [`prepare_streaming`](LlmBackend::prepare_streaming) deliberately so invalid-request
-    /// errors attribute to `stream_chat_completion` rather than `prepare_streaming`.
-    async fn stream_chat_completion(
+    /// errors attribute to `stream_generate` rather than `prepare_streaming`.
+    async fn stream_generate(
         &self,
-        request: ChatCompletionRequest,
-    ) -> Result<ChatCompletionStream, BackendError> {
-        let request = into_validated_streaming_request(request, "stream_chat_completion")?;
+        request: GenerationRequest,
+    ) -> Result<GenerationStream, BackendError> {
+        let request = into_validated_streaming_request(request, "stream_generate")?;
         let prepared = self.prepare_streaming(request)?;
         let response = self.send(prepared).await?;
         self.parse_streaming(response).await
@@ -152,14 +185,15 @@ pub trait LlmBackend: Identifiable + CapabilityNegotiation + Send + Sync {
 
     /// Render messages to their provider-specific JSON string representation.
     ///
-    /// The returned string matches exactly what the provider would receive in the `messages`
-    /// field of a chat completion request body. Useful for token estimation.
-    fn render_messages(&self, messages: &[ChatMessage]) -> Result<String, BackendError>;
+    /// The returned string matches the `messages`/`input` field of a generation request body —
+    /// excluding top-level fields such as Anthropic's `system` or Responses' `instructions` —
+    /// exactly as the provider would receive it. Useful for token estimation.
+    fn render_messages(&self, messages: &[Message]) -> Result<String, BackendError>;
 
     /// Render tool definitions to their provider-specific JSON string representation.
     ///
     /// The returned string matches exactly what the provider would receive in the `tools`
-    /// field of a chat completion request body. Useful for token estimation.
+    /// field of a generation request body. Useful for token estimation.
     fn render_tools(&self, tools: &[ToolDefinition]) -> Result<String, BackendError>;
 
     /// The backend family this type produces (e.g. [`crate::family::DEEPSEEK`]).

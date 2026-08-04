@@ -13,7 +13,7 @@ type BackendBuilder = fn(
 ///
 /// A composable primitive: `family -> constructor`, with no held configuration and no caching.
 /// Each [`create`](Self::create) call builds a fresh shared backend; downstream that wants
-/// sharing caches the returned [`Arc`] or clones the [`crate::ChatClient`] built from it.
+/// sharing caches the returned [`Arc`] or clones the [`crate::GenerationClient`] built from it.
 ///
 /// Constructors and family names come from the [`LlmBackend`] trait itself
 /// ([`LlmBackend::new`] / [`LlmBackend::family`]) — every backend type carries them. The common
@@ -27,19 +27,34 @@ impl BackendFactory {
     /// A factory pre-seeded with every compiled-in built-in backend.
     ///
     /// The common path: under default features both the DeepSeek and OpenAI-compatible backends
-    /// are registered automatically. With no backend features enabled this yields an empty factory
+    /// are registered automatically (plus the Responses/Anthropic backends under their features).
+    /// With no backend features enabled this yields an empty factory
     /// (equivalent to [`empty`](Self::empty)).
     pub fn new() -> Self {
-        #[cfg(any(feature = "deepseek", feature = "openai-compat"))]
+        #[cfg(any(
+            feature = "deepseek",
+            feature = "openai-compat",
+            feature = "responses",
+            feature = "anthropic"
+        ))]
         {
             let mut factory = Self::empty();
             #[cfg(feature = "deepseek")]
             factory.register::<crate::provider::DeepSeekBackend>();
             #[cfg(feature = "openai-compat")]
             factory.register::<crate::provider::OpenAiCompatBackend>();
+            #[cfg(feature = "responses")]
+            factory.register::<crate::provider::OpenAiResponsesBackend>();
+            #[cfg(feature = "anthropic")]
+            factory.register::<crate::provider::AnthropicBackend>();
             factory
         }
-        #[cfg(not(any(feature = "deepseek", feature = "openai-compat")))]
+        #[cfg(not(any(
+            feature = "deepseek",
+            feature = "openai-compat",
+            feature = "responses",
+            feature = "anthropic"
+        )))]
         {
             Self::empty()
         }

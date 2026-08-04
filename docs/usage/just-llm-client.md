@@ -45,7 +45,7 @@ The workspace supports two complementary initialization styles:
 | Style                       | Best when                                                                                                         | Tradeoff                                                                                                                 |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | Direct backend construction | You already know the provider family in code and want the shortest path from config to normalized client requests | You write separate setup code per provider family                                                                        |
-| `BackendFactory`            | Provider choice is configuration-driven and you want runtime dispatch from a family string                        | You construct a backend from `(family, http, key, base_url)`, then wrap it in a `ChatClient` with explicit model/system-prompt defaults |
+| `BackendFactory`            | Provider choice is configuration-driven and you want runtime dispatch from a family string                        | You construct a backend from `(family, http, key, base_url)`, then wrap it in a `GenerationClient` with explicit model/system-prompt defaults |
 
 Example environment:
 
@@ -69,7 +69,7 @@ giving callers full access to the HTTP response (including headers) before deser
 use just_llm_client::{
     LlmBackend,
     provider::OpenAiCompatBackend,
-    types::chat::{ChatCompletionRequest, ChatMessage},
+    types::generation::{GenerationRequest, Message},
 };
 
 let backend = OpenAiCompatBackend::new(
@@ -79,9 +79,9 @@ let backend = OpenAiCompatBackend::new(
 )?;
 
 let builder = backend.prepare(
-    ChatCompletionRequest::new(
+    GenerationRequest::new(
         "gpt-4.1-mini",
-        vec![ChatMessage::user("Say hello in one sentence.")],
+        vec![Message::user("Say hello in one sentence.")],
     )
     .with_system_prompt("You are a concise assistant."),
 )?;
@@ -91,10 +91,10 @@ let response = backend.send(builder).await?;
 let retry_after = response.headers().get("retry-after");
 
 // Deserialize into the normalized type via dyn dispatch on the backend.
-let completion = backend.parse(response).await?;
+let generation = backend.parse(response).await?;
 ```
 
-For convenience, `chat_completion()` and `stream_chat_completion()` compose prepare + send + parse
+For convenience, `generate()` and `stream_generate()` compose prepare + send + parse
 into a single call.
 
 ## Runtime-selected provider example
@@ -112,7 +112,7 @@ Those examples are intentionally complementary:
 
 ## Capability negotiation
 
-The shared `LlmBackend` surface keeps always-on operations such as chat completion
+The shared `LlmBackend` surface keeps always-on operations such as generation
 directly callable, and routes optional operations through `CapabilityNegotiation`. A successful
 negotiation returns a handle like `&dyn ModelCatalog`; unsupported
 backends fail at negotiation time instead of inside the capability method.

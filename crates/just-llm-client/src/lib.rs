@@ -5,7 +5,8 @@
 //!
 //! Two building blocks on top of the provider type crates:
 //!
-//! - **Backend adapters** ([`crate::provider::DeepSeekBackend`], [`crate::provider::OpenAiCompatBackend`]):
+//! - **Backend adapters** (`DeepSeekBackend`, `OpenAiCompatBackend`, `OpenAiResponsesBackend`,
+//!   `AnthropicBackend`, under the `deepseek`/`openai-compat`/`responses`/`anthropic` features):
 //!   fully-constructed LLM adapters that hold a `reqwest::Client` and base URL directly, expose
 //!   always-on operations, and negotiate optional capabilities such as model catalogs or balance
 //!   inspection. Every backend implements [`LlmBackend`], which also carries the uniform
@@ -18,9 +19,10 @@
 //!   [`create`](BackendFactory::create). It holds no configuration and caches nothing — downstream
 //!   composes any registry or sharing policy on top.
 //!
-//! [`ChatClient`] pairs per-call defaults (model, system prompt) with a shared [`LlmBackend`] and
-//! derefs to `dyn LlmBackend`, so chat and capability methods are reachable directly. Construct a
-//! backend via [`BackendFactory`] or [`LlmBackend::new`], then wrap it in a [`ChatClient`].
+//! [`GenerationClient`] pairs per-call defaults (model, system prompt) with a shared
+//! [`LlmBackend`] and derefs to `dyn LlmBackend`, so generation and capability methods are
+//! reachable directly. Construct a backend via [`BackendFactory`] or [`LlmBackend::new`], then
+//! wrap it in a [`GenerationClient`].
 //!
 //! # Prepare-send-parse pattern
 //!
@@ -32,14 +34,14 @@
 //! let response = backend.send(prepared).await?;       // raw reqwest::Response, status unchecked
 //! // Inspect status / headers (retry-after, x-ratelimit-*) here, or re-send a clone of `prepared` (via try_clone) for retry.
 //! let retry_after = response.headers().get("retry-after");
-//! let completion = backend.parse(response).await?;    // deserialized via dyn dispatch
+//! let generation = backend.parse(response).await?;    // deserialized via dyn dispatch
 //! ```
 //!
 //! # Capability traits
 //!
 //! Every backend adapter implements [`LlmBackend`], which provides the prepare/send/parse
-//! primitives (with streaming variants) and the `chat_completion`/`stream_chat_completion`
-//! convenience methods, all with concrete types (no associated types). [`ChatClient`]
+//! primitives (with streaming variants) and the `generate`/`stream_generate`
+//! convenience methods, all with concrete types (no associated types). [`GenerationClient`]
 //! derefs to `dyn LlmBackend` so all methods are available without importing the trait explicitly.
 //! Optional operations are negotiated through [`CapabilityNegotiation`] before use so
 //! [`CapabilityError::Unsupported`] is reported at the negotiation boundary instead of from the
@@ -59,7 +61,7 @@
 
 /// Capability traits exposed by the LLM client layer.
 pub mod capability;
-/// Unified chat client and backend factory.
+/// Unified generation client and backend factory.
 pub mod client;
 /// LLM client error taxonomy.
 pub mod error;
@@ -73,7 +75,7 @@ pub mod tools;
 pub mod types;
 
 pub use capability::{
-    Balance, CapabilityNegotiation, ChatCompletionStream, Identifiable, ModelCatalog,
+    Balance, CapabilityNegotiation, GenerationStream, Identifiable, ModelCatalog,
 };
 pub use error::{BackendConstructError, BackendError, Capability, CapabilityError};
 pub use just_common::error::{ProviderError, TransportError, captured_body};
@@ -85,4 +87,4 @@ pub use provider::validation::{
 };
 pub use tools::{LlmTool, ToolCallError, ToolDispatcher, ToolRegistrationError};
 
-pub use client::{BackendFactory, ChatClient, ChatClientOptions};
+pub use client::{BackendFactory, GenerationClient, GenerationClientOptions};

@@ -9,29 +9,26 @@ use futures_core::Stream;
 
 use crate::{
     error::{BackendError, Capability, CapabilityError},
-    types::{balance::BalanceSnapshot, chat::ChatCompletionChunk, model::ModelCatalogResponse},
+    types::{balance::BalanceSnapshot, generation::GenerationEvent, model::ModelCatalogResponse},
 };
 
-/// Stream of normalized chat-completion chunks.
+/// Stream of normalized generation events.
 ///
 /// Wrapper around a `Pin<Box<dyn Stream<...>>>` that implements [`Stream`] so all `StreamExt`
 /// methods (`.next()`, `.map()`, `.collect()`, etc.) work as expected.
 #[must_use = "streams are lazy; call .next() to drive them"]
-pub struct ChatCompletionStream {
+pub struct GenerationStream {
     inner: Pin<
-        Box<
-            dyn Stream<Item = Result<ChatCompletionChunk, just_common::error::TransportError>>
-                + Send,
-        >,
+        Box<dyn Stream<Item = Result<GenerationEvent, just_common::error::TransportError>> + Send>,
     >,
 }
 
-impl ChatCompletionStream {
-    /// Wraps a boxed, pinned stream of chunks into a typed [`ChatCompletionStream`].
+impl GenerationStream {
+    /// Wraps a boxed, pinned stream of events into a typed [`GenerationStream`].
     pub fn new(
         inner: Pin<
             Box<
-                dyn Stream<Item = Result<ChatCompletionChunk, just_common::error::TransportError>>
+                dyn Stream<Item = Result<GenerationEvent, just_common::error::TransportError>>
                     + Send,
             >,
         >,
@@ -40,15 +37,14 @@ impl ChatCompletionStream {
     }
 }
 
-impl fmt::Debug for ChatCompletionStream {
+impl fmt::Debug for GenerationStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ChatCompletionStream")
-            .finish_non_exhaustive()
+        f.debug_struct("GenerationStream").finish_non_exhaustive()
     }
 }
 
-impl Stream for ChatCompletionStream {
-    type Item = Result<ChatCompletionChunk, just_common::error::TransportError>;
+impl Stream for GenerationStream {
+    type Item = Result<GenerationEvent, just_common::error::TransportError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.inner.as_mut().poll_next(cx)

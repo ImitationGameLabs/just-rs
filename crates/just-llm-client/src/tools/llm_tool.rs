@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::types::chat::{FunctionDefinition, ToolDefinition, ToolType};
+use crate::types::generation::{FunctionDefinition, ToolDefinition, ToolType};
 
 /// Object-safe application-side tool contract for local function calling.
 #[async_trait]

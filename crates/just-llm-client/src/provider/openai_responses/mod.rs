@@ -1,14 +1,16 @@
-//! OpenAI-compatible LLM backend adapter.
+//! OpenAI Responses LLM backend adapter.
 //!
-//! [`OpenAiCompatBackend`] wraps a [`just_openai_compat::OpenAiCompatClient`] and implements
-//! [`LlmBackend`] for any service that exposes an OpenAI-like chat completion surface.
-//! Balance inspection is negotiated explicitly and returns
-//! [`CapabilityError::Unsupported`](crate::CapabilityError::Unsupported) because the generic
-//! OpenAI-compatible API does not expose a balance endpoint.
+//! [`OpenAiResponsesBackend`] wraps a [`just_openai_responses::ResponsesClient`] and implements
+//! [`LlmBackend`], mapping the semantic [`GenerationRequest`] to the Responses API. System prompts
+//! are extracted to the top-level `instructions` field, tool results round-trip through
+//! `function_call_output` items, and reasoning preserves its `id`/`encrypted_content` fidelity
+//! carriers. Balance inspection is negotiated explicitly and returns
+//! [`CapabilityError::Unsupported`](crate::CapabilityError::Unsupported) because the Responses API
+//! does not expose a balance endpoint.
 //!
-//! Construct from raw inputs (API key + base URL) via the [`LlmBackend::new`] trait method
-//! ([`LlmBackend`] must be in scope), via [`OpenAiCompatBackend::from_provider_client`] with a
-//! pre-built provider client, or through a [`BackendFactory`](crate::BackendFactory) that
+//! Construct from raw inputs (API key + optional base URL) via the [`LlmBackend::new`] trait
+//! method ([`LlmBackend`] must be in scope), via [`OpenAiResponsesBackend::from_provider_client`]
+//! with a pre-built provider client, or through a [`BackendFactory`](crate::BackendFactory) that
 //! registers this backend.
 
 mod conversions;
@@ -29,41 +31,41 @@ use crate::{
 
 use super::LlmBackend;
 
-/// `just-llm-client` adapter for OpenAI-compatible providers.
+/// `just-llm-client` adapter for the OpenAI Responses API.
 ///
-/// Delegates HTTP dispatch to a [`just_openai_compat::OpenAiCompatClient`] and handles type
-/// conversion between normalized client types and provider-specific wire types.
+/// Delegates HTTP dispatch to a [`just_openai_responses::ResponsesClient`] and handles type
+/// conversion between normalized client types and the Responses wire format.
 #[derive(Clone, Debug)]
-pub struct OpenAiCompatBackend {
-    client: just_openai_compat::OpenAiCompatClient,
+pub struct OpenAiResponsesBackend {
+    client: just_openai_responses::ResponsesClient,
 }
 
-impl OpenAiCompatBackend {
+impl OpenAiResponsesBackend {
     /// Creates a new backend from a pre-built provider client.
-    pub fn from_provider_client(client: just_openai_compat::OpenAiCompatClient) -> Self {
+    pub fn from_provider_client(client: just_openai_responses::ResponsesClient) -> Self {
         Self { client }
     }
 }
 
-impl Identifiable for OpenAiCompatBackend {
+impl Identifiable for OpenAiResponsesBackend {
     fn family(&self) -> &'static str {
-        crate::family::OPENAI_COMPATIBLE
+        crate::family::OPENAI_RESPONSES
     }
 }
 
-impl CapabilityNegotiation for OpenAiCompatBackend {
+impl CapabilityNegotiation for OpenAiResponsesBackend {
     fn model_catalog(&self) -> Result<&dyn ModelCatalog, CapabilityError> {
         Ok(self)
     }
 }
 
 #[async_trait]
-impl LlmBackend for OpenAiCompatBackend {
+impl LlmBackend for OpenAiResponsesBackend {
     // --- prepare / send (raw HTTP surface) ---
 
     fn prepare(&self, request: GenerationRequest) -> Result<reqwest::Request, BackendError> {
         validate_non_streaming_request(&request, "prepare", "prepare_streaming")?;
-        let provider_req: just_openai_compat::types::chat::ChatCompletionRequest =
+        let provider_req: just_openai_responses::types::request::CreateResponseRequest =
             request.try_into()?;
         self.client
             .prepare(provider_req)
@@ -75,7 +77,7 @@ impl LlmBackend for OpenAiCompatBackend {
         request: GenerationRequest,
     ) -> Result<reqwest::Request, BackendError> {
         let request = into_validated_streaming_request(request, "prepare_streaming")?;
-        let provider_req: just_openai_compat::types::chat::ChatCompletionRequest =
+        let provider_req: just_openai_responses::types::request::CreateResponseRequest =
             request.try_into()?;
         self.client
             .prepare_streaming(provider_req)
@@ -92,8 +94,7 @@ impl LlmBackend for OpenAiCompatBackend {
     // --- parse + rendering ---
 
     async fn parse(&self, response: reqwest::Response) -> Result<GenerationResponse, BackendError> {
-        // Deserialize into the provider-native type, then lift to the normalized client type.
-        let native: just_openai_compat::types::chat::ChatCompletion = self
+        let native: just_openai_responses::types::response::Response = self
             .client
             .parse(response)
             .await
@@ -105,28 +106,32 @@ impl LlmBackend for OpenAiCompatBackend {
         &self,
         response: reqwest::Response,
     ) -> Result<GenerationStream, BackendError> {
-        // The provider stream yields provider-native chunks; flatten each into normalized events.
         let stream = self
             .client
             .parse_streaming(response)
             .await
             .map_err(|e| BackendError::provider(self.family(), e))?;
-        let mapped = super::flatten_events(stream, conversions::chunk_to_events);
+        let mapped = super::flatten_events(stream, conversions::event_to_generation_events);
         Ok(GenerationStream::new(mapped))
     }
 
     fn render_messages(&self, messages: &[Message]) -> Result<String, BackendError> {
-        let provider_messages = messages
-            .iter()
-            .cloned()
-            .map(just_openai_compat::types::chat::ChatMessage::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
+        // Responses carries the system prompt as the top-level `instructions` field, so only the
+        // non-system messages belong in the `input` items this render targets.
+        let (_, remaining) = conversions::extract_instructions(messages.to_vec())?;
+        let provider_messages = remaining
+            .into_iter()
+            .map(conversions::message_to_input_items)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
         serde_json::to_string(&provider_messages).map_err(BackendError::serialization)
     }
 
     fn render_tools(&self, tools: &[ToolDefinition]) -> Result<String, BackendError> {
-        let provider_tools: Vec<just_openai_compat::types::chat::ToolDefinition> =
-            tools.iter().cloned().map(Into::into).collect();
+        let provider_tools: Vec<just_openai_responses::types::tool::ResponseTool> =
+            tools.iter().cloned().map(conversions::wire_tool).collect();
         serde_json::to_string(&provider_tools).map_err(BackendError::serialization)
     }
 
@@ -134,14 +139,12 @@ impl LlmBackend for OpenAiCompatBackend {
     where
         Self: Sized,
     {
-        crate::family::OPENAI_COMPATIBLE
+        crate::family::OPENAI_RESPONSES
     }
 
-    /// Build a shared OpenAI-compatible backend from raw inputs.
+    /// Build a shared OpenAI Responses backend from raw inputs.
     ///
-    /// This provider has no default base URL — `base_url = None` surfaces as
-    /// [`BackendConstructError::Provider`](crate::BackendConstructError::Provider) carrying a
-    /// `TransportError::InvalidConfig("base url is required")` source.
+    /// `base_url = None` uses the provider default (`https://api.openai.com/v1`).
     #[allow(clippy::new_ret_no_self)]
     fn new(
         http: reqwest::ClientBuilder,
@@ -151,7 +154,7 @@ impl LlmBackend for OpenAiCompatBackend {
     where
         Self: Sized,
     {
-        let mut builder = just_openai_compat::OpenAiCompatClient::builder()
+        let mut builder = just_openai_responses::ResponsesClient::builder()
             .api_key(api_key)
             .http_client(http);
         if let Some(url) = base_url {
@@ -159,13 +162,13 @@ impl LlmBackend for OpenAiCompatBackend {
         }
         let client = builder
             .build()
-            .map_err(|e| BackendConstructError::provider(crate::family::OPENAI_COMPATIBLE, e))?;
+            .map_err(|e| BackendConstructError::provider(crate::family::OPENAI_RESPONSES, e))?;
         Ok(Arc::new(Self::from_provider_client(client)))
     }
 }
 
 #[async_trait]
-impl ModelCatalog for OpenAiCompatBackend {
+impl ModelCatalog for OpenAiResponsesBackend {
     async fn list_models(&self) -> Result<ModelCatalogResponse, BackendError> {
         let models = self
             .client

@@ -3,7 +3,7 @@ mod common;
 use just_llm_client::{
     LlmBackend,
     provider::DeepSeekBackend,
-    types::chat::{ChatCompletionRequest, ChatMessage},
+    types::generation::{GenerationRequest, Message},
 };
 
 #[tokio::main]
@@ -28,19 +28,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  [user] {prompt}");
 
     let response = backend
-        .chat_completion(
-            ChatCompletionRequest::new(model, vec![ChatMessage::user(prompt)])
+        .generate(
+            GenerationRequest::new(model, vec![Message::user(prompt)])
                 .with_system_prompt("You are a concise assistant."),
         )
         .await?;
 
     println!("\n--- response 1 ---");
-    if let Some(rc) = response.first_choice_reasoning_content() {
-        println!("  [reasoning] {rc}");
+    if let Some(text) = response.reasoning().and_then(|r| r.text.as_deref()) {
+        println!("  [reasoning] {text}");
     }
-    println!(
-        "  [assistant] {}",
-        response.first_choice_content().unwrap_or_default()
-    );
+    println!("  [assistant] {}", response.text().unwrap_or_default());
     Ok(())
 }

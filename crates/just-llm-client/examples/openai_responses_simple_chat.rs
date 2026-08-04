@@ -2,7 +2,7 @@ mod common;
 
 use just_llm_client::{
     LlmBackend,
-    provider::OpenAiCompatBackend,
+    provider::OpenAiResponsesBackend,
     types::generation::{GenerationRequest, Message},
 };
 
@@ -10,17 +10,16 @@ use just_llm_client::{
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().expect("failed to load .env file");
 
-    let api_key = common::expect_env("JUST_LLM_OPENAI_COMPAT_API_KEY");
-    let base_url = common::expect_env("JUST_LLM_OPENAI_COMPAT_BASE_URL");
-    let model = common::expect_env("JUST_LLM_OPENAI_COMPAT_MODEL");
+    let api_key = common::expect_env("JUST_LLM_OPENAI_RESPONSES_API_KEY");
+    let model = common::expect_env("JUST_LLM_OPENAI_RESPONSES_MODEL");
     let prompt = "Say hello in one sentence.";
 
-    let backend = OpenAiCompatBackend::new(
+    let backend = OpenAiResponsesBackend::new(
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .use_rustls_tls(),
         &api_key,
-        Some(base_url.as_str()),
+        None,
     )?;
 
     println!("--- request 1 ---");

@@ -1,12 +1,12 @@
 //! Backend factory initialization.
 //!
-//! Demonstrates building a [`BackendFactory`] by hand and obtaining a [`ChatClient`] from it.
+//! Demonstrates building a [`BackendFactory`] by hand and obtaining a [`GenerationClient`] from it.
 
 mod common;
 
 use just_llm_client::{
-    BackendFactory, ChatClient, ChatClientOptions, family, provider::OpenAiCompatBackend,
-    types::chat::ChatMessage,
+    BackendFactory, GenerationClient, GenerationClientOptions, family,
+    provider::OpenAiCompatBackend, types::generation::Message,
 };
 
 #[tokio::main]
@@ -31,9 +31,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &api_key,
         Some(&base_url),
     )?;
-    let client = ChatClient::new(
+    let client = GenerationClient::new(
         backend,
-        ChatClientOptions::new(model).with_system_prompt("You are a concise assistant."),
+        GenerationClientOptions::new(model).with_system_prompt("You are a concise assistant."),
     );
 
     println!("--- request 1 ---");
@@ -42,16 +42,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  [system] You are a concise assistant.");
     println!("  [user] {prompt}");
 
-    let request = client.create_request(vec![ChatMessage::user(prompt)]);
-    let response = client.chat_completion(request).await?;
+    let request = client.create_request(vec![Message::user(prompt)]);
+    let response = client.generate(request).await?;
 
     println!("\n--- response 1 ---");
-    if let Some(rc) = response.first_choice_reasoning_content() {
-        println!("  [reasoning] {rc}");
+    if let Some(text) = response.reasoning().and_then(|r| r.text.as_deref()) {
+        println!("  [reasoning] {text}");
     }
-    println!(
-        "  [assistant] {}",
-        response.first_choice_content().unwrap_or_default()
-    );
+    println!("  [assistant] {}", response.text().unwrap_or_default());
     Ok(())
 }

@@ -13,17 +13,14 @@ mod conversions;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures_util::StreamExt;
 
 use crate::{
-    capability::{
-        Balance, CapabilityNegotiation, ChatCompletionStream, Identifiable, ModelCatalog,
-    },
+    capability::{Balance, CapabilityNegotiation, GenerationStream, Identifiable, ModelCatalog},
     error::{BackendConstructError, BackendError, CapabilityError},
     provider::validation::{into_validated_streaming_request, validate_non_streaming_request},
     types::{
         balance::{BalanceEntry, BalanceSnapshot, Currency},
-        chat::{ChatCompletionRequest, ChatCompletionResponse, ChatMessage, ToolDefinition},
+        generation::{GenerationRequest, GenerationResponse, Message, ToolDefinition},
         model::{ModelCatalogResponse, ModelInfo},
     },
 };
@@ -66,9 +63,9 @@ impl CapabilityNegotiation for DeepSeekBackend {
 impl LlmBackend for DeepSeekBackend {
     // --- prepare / send (raw HTTP surface) ---
 
-    fn prepare(&self, request: ChatCompletionRequest) -> Result<reqwest::Request, BackendError> {
+    fn prepare(&self, request: GenerationRequest) -> Result<reqwest::Request, BackendError> {
         validate_non_streaming_request(&request, "prepare", "prepare_streaming")?;
-        let provider_req: just_deepseek::types::chat::ChatCompletionRequest = request.into();
+        let provider_req: just_deepseek::types::chat::ChatCompletionRequest = request.try_into()?;
         self.client
             .prepare(provider_req)
             .map_err(|e| BackendError::provider(self.family(), e))
@@ -76,10 +73,10 @@ impl LlmBackend for DeepSeekBackend {
 
     fn prepare_streaming(
         &self,
-        request: ChatCompletionRequest,
+        request: GenerationRequest,
     ) -> Result<reqwest::Request, BackendError> {
         let request = into_validated_streaming_request(request, "prepare_streaming")?;
-        let provider_req: just_deepseek::types::chat::ChatCompletionRequest = request.into();
+        let provider_req: just_deepseek::types::chat::ChatCompletionRequest = request.try_into()?;
         self.client
             .prepare_streaming(provider_req)
             .map_err(|e| BackendError::provider(self.family(), e))
@@ -94,10 +91,7 @@ impl LlmBackend for DeepSeekBackend {
 
     // --- parse + rendering ---
 
-    async fn parse(
-        &self,
-        response: reqwest::Response,
-    ) -> Result<ChatCompletionResponse, BackendError> {
+    async fn parse(&self, response: reqwest::Response) -> Result<GenerationResponse, BackendError> {
         // Deserialize into the provider-native type, then lift to the normalized client type.
         let native: just_deepseek::types::chat::ChatCompletion = self
             .client
@@ -110,20 +104,23 @@ impl LlmBackend for DeepSeekBackend {
     async fn parse_streaming(
         &self,
         response: reqwest::Response,
-    ) -> Result<ChatCompletionStream, BackendError> {
-        // The provider stream yields provider-native chunks; map to normalized types.
+    ) -> Result<GenerationStream, BackendError> {
+        // The provider stream yields provider-native chunks; flatten each into normalized events.
         let stream = self
             .client
             .parse_streaming(response)
             .await
             .map_err(|e| BackendError::provider(self.family(), e))?;
-        let mapped = stream.map(|chunk| chunk.map(Into::into));
-        Ok(ChatCompletionStream::new(Box::pin(mapped)))
+        let mapped = super::flatten_events(stream, conversions::chunk_to_events);
+        Ok(GenerationStream::new(mapped))
     }
 
-    fn render_messages(&self, messages: &[ChatMessage]) -> Result<String, BackendError> {
-        let provider_messages: Vec<just_deepseek::types::chat::ChatMessage> =
-            messages.iter().cloned().map(Into::into).collect();
+    fn render_messages(&self, messages: &[Message]) -> Result<String, BackendError> {
+        let provider_messages = messages
+            .iter()
+            .cloned()
+            .map(just_deepseek::types::chat::ChatMessage::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
         serde_json::to_string(&provider_messages).map_err(BackendError::serialization)
     }
 

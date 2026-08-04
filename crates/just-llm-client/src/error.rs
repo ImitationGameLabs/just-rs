@@ -4,10 +4,10 @@
 //! at the type level:
 //!
 //! - [`BackendConstructError`] — *constructing* a backend failed (`LlmBackend::new`,
-//!   `BackendFactory::create`). Precondition/setup failures only; never a chat call.
+//!   `BackendFactory::create`). Precondition/setup failures only; never a generation call.
 //! - [`CapabilityError`] — a backend *statically* does not offer a capability
 //!   (`CapabilityNegotiation`). Decided without IO; never a provider call.
-//! - [`BackendError`] — *operating* an already-constructed backend failed (chat completion,
+//! - [`BackendError`] — *operating* an already-constructed backend failed (generation,
 //!   streaming, prepare/send/parse, rendering, model catalog, balance). Runtime execution only.
 
 use std::{error::Error as StdError, fmt};
@@ -49,7 +49,7 @@ impl fmt::Display for Capability {
 /// Produced only by [`LlmBackend::new`](crate::LlmBackend::new) and
 /// [`BackendFactory::create`](crate::BackendFactory::create). Distinct from [`BackendError`]
 /// (operating a backend) and [`CapabilityError`] (static capability gating): construction never
-/// performs a chat call, so its failure model is isolated.
+/// performs a generation call, so its failure model is isolated.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BackendConstructError {
@@ -161,7 +161,7 @@ impl CapabilityError {
 
 /// Operating an already-constructed backend failed: a runtime execution failure.
 ///
-/// Returned by chat completion, streaming, prepare/send/parse, rendering, model catalog, and
+/// Returned by generation, streaming, prepare/send/parse, rendering, model catalog, and
 /// balance calls — everything that drives a live backend. Construction failures are
 /// [`BackendConstructError`]; static capability gating is [`CapabilityError`].
 #[derive(Debug, Error)]

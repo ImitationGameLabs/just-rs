@@ -1,31 +1,68 @@
 #[cfg(feature = "openai-compat")]
 use just_llm_client::error::{Capability, CapabilityError};
 
-#[cfg(feature = "openai-compat")]
+#[cfg(any(
+    feature = "openai-compat",
+    feature = "responses",
+    feature = "anthropic"
+))]
 use futures_util::StreamExt;
+#[cfg(feature = "anthropic")]
+use just_llm_client::provider::AnthropicBackend;
 #[cfg(feature = "deepseek")]
 use just_llm_client::provider::DeepSeekBackend;
 #[cfg(feature = "openai-compat")]
 use just_llm_client::provider::OpenAiCompatBackend;
+#[cfg(feature = "responses")]
+use just_llm_client::provider::OpenAiResponsesBackend;
+#[cfg(feature = "responses")]
+use just_llm_client::types::generation::StopSequence;
+#[cfg(any(
+    feature = "deepseek",
+    feature = "openai-compat",
+    feature = "responses",
+    feature = "anthropic"
+))]
+use just_llm_client::types::generation::ToolCall;
 #[cfg(any(feature = "deepseek", feature = "openai-compat"))]
-use just_llm_client::types::chat::{ChatToolCall, FunctionCall, FunctionDefinition, ToolType};
+use just_llm_client::types::generation::{FunctionDefinition, ToolDefinition, ToolType};
 #[cfg(feature = "deepseek")]
-use just_llm_client::types::chat::{ToolChoice, ToolChoiceMode};
-#[cfg(any(feature = "deepseek", feature = "openai-compat"))]
+use just_llm_client::types::generation::{ToolChoice, ToolChoiceMode};
+#[cfg(any(
+    feature = "deepseek",
+    feature = "openai-compat",
+    feature = "responses",
+    feature = "anthropic"
+))]
 use just_llm_client::{
     LlmBackend,
     error::BackendError,
-    types::chat::{ChatCompletionRequest, ChatMessage, ToolDefinition},
+    types::generation::{GenerationEvent, GenerationRequest, Message},
 };
-#[cfg(any(feature = "deepseek", feature = "openai-compat"))]
+#[cfg(any(
+    feature = "deepseek",
+    feature = "openai-compat",
+    feature = "responses",
+    feature = "anthropic"
+))]
 use serde_json::json;
-#[cfg(any(feature = "deepseek", feature = "openai-compat"))]
+#[cfg(any(
+    feature = "deepseek",
+    feature = "openai-compat",
+    feature = "responses",
+    feature = "anthropic"
+))]
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
 };
 
-#[cfg(any(feature = "deepseek", feature = "openai-compat"))]
+#[cfg(any(
+    feature = "deepseek",
+    feature = "openai-compat",
+    feature = "responses",
+    feature = "anthropic"
+))]
 use std::sync::Arc;
 
 #[cfg(feature = "deepseek")]
@@ -74,7 +111,7 @@ fn openai_backend_no_server() -> Arc<dyn LlmBackend> {
 
 #[cfg(feature = "deepseek")]
 #[tokio::test]
-async fn deepseek_adapter_maps_chat_and_balance() {
+async fn deepseek_adapter_maps_generation_and_balance() {
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -123,15 +160,15 @@ async fn deepseek_adapter_maps_chat_and_balance() {
 
     let backend = deepseek_backend(&server);
     let response = backend
-        .chat_completion(ChatCompletionRequest::new(
+        .generate(GenerationRequest::new(
             "deepseek-v4-pro",
-            vec![ChatMessage::user("hello")],
+            vec![Message::user("hello")],
         ))
         .await
         .unwrap();
     let balance = backend.balance().unwrap().get_balance().await.unwrap();
 
-    assert_eq!(response.first_choice_content(), Some("hello"));
+    assert_eq!(response.text(), Some("hello"));
     assert!(balance.is_available);
 }
 
@@ -140,7 +177,7 @@ async fn deepseek_adapter_maps_chat_and_balance() {
 async fn preparation_rejects_invalid_request_combinations() {
     let server = MockServer::start().await;
     let backend = deepseek_backend(&server);
-    let mut request = ChatCompletionRequest::new("deepseek-v4-pro", vec![ChatMessage::user("x")]);
+    let mut request = GenerationRequest::new("deepseek-v4-pro", vec![Message::user("x")]);
     request.tool_choice = Some(ToolChoice::Mode(ToolChoiceMode::Auto));
 
     let error = backend.prepare(request).unwrap_err();
@@ -183,9 +220,9 @@ async fn deepseek_adapter_preserves_cache_usage_when_reported() {
 
     let backend = deepseek_backend(&server);
     let response = backend
-        .chat_completion(ChatCompletionRequest::new(
+        .generate(GenerationRequest::new(
             "deepseek-v4-pro",
-            vec![ChatMessage::user("hello")],
+            vec![Message::user("hello")],
         ))
         .await
         .unwrap();
@@ -258,9 +295,9 @@ async fn prepare_send_returns_raw_response_with_accessible_headers() {
 
     let backend = openai_backend(&server);
     let builder = backend
-        .prepare(ChatCompletionRequest::new(
+        .prepare(GenerationRequest::new(
             "gpt-4.1-mini",
-            vec![ChatMessage::user("hello")],
+            vec![Message::user("hello")],
         ))
         .unwrap();
 
@@ -297,17 +334,17 @@ async fn prepare_send_parse_roundtrips_normalized_response() {
 
     let backend = openai_backend(&server);
     let prepared = backend
-        .prepare(ChatCompletionRequest::new(
+        .prepare(GenerationRequest::new(
             "gpt-4.1-mini",
-            vec![ChatMessage::user("hello")],
+            vec![Message::user("hello")],
         ))
         .unwrap();
     let response = backend.send(prepared).await.unwrap();
     assert!(response.status().is_success());
 
     // parse deserializes via dyn dispatch on the right backend.
-    let completion = backend.parse(response).await.unwrap();
-    assert_eq!(completion.first_choice_content(), Some("hi"));
+    let generation = backend.parse(response).await.unwrap();
+    assert_eq!(generation.text(), Some("hi"));
 }
 
 #[cfg(feature = "openai-compat")]
@@ -329,9 +366,9 @@ async fn parse_surfaces_http_status_for_error_response() {
 
     let backend = openai_backend(&server);
     let prepared = backend
-        .prepare(ChatCompletionRequest::new(
+        .prepare(GenerationRequest::new(
             "gpt-4.1-mini",
-            vec![ChatMessage::user("hello")],
+            vec![Message::user("hello")],
         ))
         .unwrap();
     let response = backend.send(prepared).await.unwrap();
@@ -372,9 +409,9 @@ async fn parse_surfaces_deserialize_error_for_malformed_body() {
 
     let backend = openai_backend(&server);
     let prepared = backend
-        .prepare(ChatCompletionRequest::new(
+        .prepare(GenerationRequest::new(
             "gpt-4.1-mini",
-            vec![ChatMessage::user("hello")],
+            vec![Message::user("hello")],
         ))
         .unwrap();
     let response = backend.send(prepared).await.unwrap();
@@ -395,7 +432,7 @@ async fn parse_surfaces_deserialize_error_for_malformed_body() {
 
 #[cfg(feature = "openai-compat")]
 #[tokio::test]
-async fn parse_streaming_yields_normalized_chunks() {
+async fn parse_streaming_yields_normalized_events() {
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -413,34 +450,37 @@ async fn parse_streaming_yields_normalized_chunks() {
 
     let backend = openai_backend(&server);
     let prepared = backend
-        .prepare_streaming(ChatCompletionRequest::new(
+        .prepare_streaming(GenerationRequest::new(
             "gpt-4.1-mini",
-            vec![ChatMessage::user("hi")],
+            vec![Message::user("hi")],
         ))
         .unwrap();
     let response = backend.send(prepared).await.unwrap();
 
     let mut stream = backend.parse_streaming(response).await.unwrap();
-    let chunk = stream.next().await.unwrap().unwrap();
-    assert_eq!(chunk.choices[0].delta.content.as_deref(), Some("hi"));
+    let event = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        event,
+        GenerationEvent::Text { delta } if delta == "hi"
+    ));
 }
 
 #[cfg(feature = "openai-compat")]
 #[tokio::test]
-async fn chat_completion_rejects_streaming_requests() {
+async fn generate_rejects_streaming_requests() {
     let server = MockServer::start().await;
     let backend = openai_backend(&server);
-    let mut request = ChatCompletionRequest::new("gpt-4.1-mini", vec![ChatMessage::user("x")]);
+    let mut request = GenerationRequest::new("gpt-4.1-mini", vec![Message::user("x")]);
     request.stream = Some(true);
 
-    let error = backend.chat_completion(request).await.unwrap_err();
+    let error = backend.generate(request).await.unwrap_err();
 
     assert!(matches!(error, BackendError::InvalidRequest(_)));
 }
 
 #[cfg(feature = "openai-compat")]
 #[tokio::test]
-async fn stream_chat_completion_promotes_stream_flag() {
+async fn stream_generate_promotes_stream_flag() {
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -457,13 +497,19 @@ async fn stream_chat_completion_promotes_stream_flag() {
         .await;
 
     let backend = openai_backend(&server);
-    let _stream = backend
-        .stream_chat_completion(ChatCompletionRequest::new(
+    let mut stream = backend
+        .stream_generate(GenerationRequest::new(
             "gpt-4.1-mini",
-            vec![ChatMessage::user("stream please")],
+            vec![Message::user("stream please")],
         ))
         .await
         .unwrap();
+
+    let event = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        event,
+        GenerationEvent::Text { delta } if delta == "hi"
+    ));
 }
 
 #[cfg(feature = "openai-compat")]
@@ -499,9 +545,9 @@ async fn openai_compat_adapter_leaves_unknown_cache_usage_empty() {
 
     let backend = openai_backend(&server);
     let response = backend
-        .chat_completion(ChatCompletionRequest::new(
+        .generate(GenerationRequest::new(
             "gpt-4.1-mini",
-            vec![ChatMessage::user("hello")],
+            vec![Message::user("hello")],
         ))
         .await
         .unwrap();
@@ -535,32 +581,42 @@ async fn openai_compat_adapter_maps_streaming_tool_call_deltas() {
 
     let backend = openai_backend(&server);
     let mut stream = backend
-        .stream_chat_completion(ChatCompletionRequest::new(
+        .stream_generate(GenerationRequest::new(
             "gpt-4.1-mini",
-            vec![ChatMessage::user("use tools")],
+            vec![Message::user("use tools")],
         ))
         .await
         .unwrap();
 
     let first = stream.next().await.unwrap().unwrap();
     let second = stream.next().await.unwrap().unwrap();
+    let end = stream.next().await.unwrap().unwrap();
 
-    let first_function = &first.choices[0].delta.tool_calls.as_ref().unwrap()[0]
-        .function
-        .as_ref()
-        .unwrap();
-    assert_eq!(first_function.name.as_deref(), Some("lookup_weather"));
-    assert_eq!(first_function.arguments.as_deref(), Some(""));
+    let GenerationEvent::ToolCall { delta: first_delta } = first else {
+        panic!("expected ToolCall event, got {first:?}");
+    };
+    assert_eq!(first_delta.id.as_deref(), Some("call_1"));
+    assert_eq!(first_delta.name.as_deref(), Some("lookup_weather"));
+    assert_eq!(first_delta.arguments.as_deref(), Some(""));
 
-    let second_function = &second.choices[0].delta.tool_calls.as_ref().unwrap()[0]
-        .function
-        .as_ref()
-        .unwrap();
-    assert_eq!(second_function.name, None);
+    let GenerationEvent::ToolCall {
+        delta: second_delta,
+    } = second
+    else {
+        panic!("expected ToolCall event, got {second:?}");
+    };
+    assert_eq!(second_delta.name, None);
     assert_eq!(
-        second_function.arguments.as_deref(),
+        second_delta.arguments.as_deref(),
         Some("{\"city\":\"Shanghai\"}")
     );
+
+    assert!(matches!(
+        end,
+        GenerationEvent::End {
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::ToolCalls)
+        }
+    ));
 }
 
 // --- render_messages / render_tools tests ---
@@ -569,10 +625,7 @@ async fn openai_compat_adapter_maps_streaming_tool_call_deltas() {
 #[test]
 fn deepseek_render_messages_produces_provider_json() {
     let backend = deepseek_backend_no_server();
-    let messages = vec![
-        ChatMessage::system("You are helpful."),
-        ChatMessage::user("Hello"),
-    ];
+    let messages = vec![Message::system("You are helpful."), Message::user("Hello")];
 
     let json = backend.render_messages(&messages).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -618,10 +671,7 @@ fn deepseek_render_messages_empty_slice_returns_empty_array() {
 #[test]
 fn openai_compat_render_messages_produces_provider_json() {
     let backend = openai_backend_no_server();
-    let messages = vec![
-        ChatMessage::system("You are helpful."),
-        ChatMessage::user("Hello"),
-    ];
+    let messages = vec![Message::system("You are helpful."), Message::user("Hello")];
 
     let json = backend.render_messages(&messages).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -669,14 +719,15 @@ fn openai_compat_render_messages_empty_slice_returns_empty_array() {
 #[test]
 fn deepseek_render_messages_with_tool_calls() {
     let backend = deepseek_backend_no_server();
-    let messages = vec![ChatMessage::assistant_tool_calls(vec![ChatToolCall {
-        id: "call_1".to_owned(),
-        kind: ToolType::Function,
-        function: FunctionCall {
+    let messages = vec![Message::assistant_tool_calls(
+        None,
+        vec![ToolCall {
+            id: "call_1".to_owned(),
             name: "get_weather".to_owned(),
             arguments: "{\"city\":\"Shanghai\"}".to_owned(),
-        },
-    }])];
+        }],
+        None,
+    )];
 
     let json = backend.render_messages(&messages).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -698,7 +749,7 @@ fn deepseek_render_messages_with_tool_calls() {
 #[test]
 fn deepseek_render_messages_with_tool_result() {
     let backend = deepseek_backend_no_server();
-    let messages = vec![ChatMessage::tool_result("{\"temperature\":26}", "call_1")];
+    let messages = vec![Message::tool("{\"temperature\":26}", "call_1")];
 
     let json = backend.render_messages(&messages).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -748,14 +799,15 @@ fn deepseek_render_tools_empty_slice_returns_empty_array() {
 #[test]
 fn openai_compat_render_messages_with_tool_calls() {
     let backend = openai_backend_no_server();
-    let messages = vec![ChatMessage::assistant_tool_calls(vec![ChatToolCall {
-        id: "call_1".to_owned(),
-        kind: ToolType::Function,
-        function: FunctionCall {
+    let messages = vec![Message::assistant_tool_calls(
+        None,
+        vec![ToolCall {
+            id: "call_1".to_owned(),
             name: "get_weather".to_owned(),
             arguments: "{\"city\":\"Shanghai\"}".to_owned(),
-        },
-    }])];
+        }],
+        None,
+    )];
 
     let json = backend.render_messages(&messages).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -777,7 +829,7 @@ fn openai_compat_render_messages_with_tool_calls() {
 #[test]
 fn openai_compat_render_messages_with_tool_result() {
     let backend = openai_backend_no_server();
-    let messages = vec![ChatMessage::tool_result("{\"temperature\":26}", "call_1")];
+    let messages = vec![Message::tool("{\"temperature\":26}", "call_1")];
 
     let json = backend.render_messages(&messages).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -821,4 +873,481 @@ fn openai_compat_render_tools_empty_slice_returns_empty_array() {
     let backend = openai_backend_no_server();
     let json = backend.render_tools(&[]).unwrap();
     assert_eq!(json, "[]");
+}
+
+// --- OpenAI Responses tests ---
+
+#[cfg(feature = "responses")]
+fn responses_backend(server: &MockServer) -> Arc<dyn LlmBackend> {
+    let uri = server.uri();
+    OpenAiResponsesBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some(&uri),
+    )
+    .expect("failed to build responses backend")
+}
+
+#[cfg(feature = "responses")]
+#[tokio::test]
+async fn responses_adapter_maps_generation_with_tools_and_reasoning() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_1",
+            "object": "response",
+            "created_at": 1,
+            "status": "completed",
+            "model": "gpt-5.6",
+            "output": [
+                {
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        { "type": "output_text", "text": "Checking the weather.", "annotations": [] }
+                    ]
+                },
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [{ "type": "summary_text", "text": "checked forecast" }],
+                    "encrypted_content": "encrypted==",
+                    "status": "completed"
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "get_weather",
+                    "arguments": "{\"city\":\"Paris\"}"
+                }
+            ],
+            "usage": {
+                "input_tokens": 10,
+                "input_tokens_details": { "cache_write_tokens": 0, "cached_tokens": 0 },
+                "output_tokens": 5,
+                "output_tokens_details": { "reasoning_tokens": 2 },
+                "total_tokens": 15
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = responses_backend(&server);
+    let response = backend
+        .generate(GenerationRequest::new(
+            "gpt-5.6",
+            vec![Message::user("weather?")],
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.text(), Some("Checking the weather."));
+    assert_eq!(
+        response.finish_reason,
+        Some(just_llm_client::types::generation::FinishReason::ToolCalls)
+    );
+    assert_eq!(response.tool_calls().len(), 1);
+    assert_eq!(response.tool_calls()[0].name, "get_weather");
+    assert_eq!(response.tool_calls()[0].arguments, "{\"city\":\"Paris\"}");
+    let reasoning = response.reasoning().expect("reasoning should be present");
+    assert_eq!(reasoning.id.as_deref(), Some("rs_1"));
+    assert_eq!(reasoning.encrypted.as_deref(), Some("encrypted=="));
+    assert_eq!(reasoning.text.as_deref(), Some("checked forecast"));
+    assert_eq!(
+        response
+            .usage
+            .as_ref()
+            .unwrap()
+            .completion_tokens_details
+            .as_ref()
+            .unwrap()
+            .reasoning_tokens,
+        Some(2)
+    );
+}
+
+#[cfg(feature = "responses")]
+#[test]
+fn responses_prepare_extracts_instructions_and_input_items() {
+    let backend = OpenAiResponsesBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build responses backend");
+
+    let request = GenerationRequest::new(
+        "gpt-5.6",
+        vec![
+            Message::system("You are concise."),
+            Message::user("What is the weather?"),
+            Message::assistant_tool_calls(
+                None,
+                vec![ToolCall {
+                    id: "call_1".to_owned(),
+                    name: "get_weather".to_owned(),
+                    arguments: "{\"city\":\"Paris\"}".to_owned(),
+                }],
+                None,
+            ),
+            Message::tool("25C", "call_1"),
+        ],
+    );
+
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    assert_eq!(parsed["instructions"], "You are concise.");
+    assert_eq!(parsed["input"][0]["type"], "message");
+    assert_eq!(parsed["input"][0]["role"], "user");
+    assert_eq!(parsed["input"][1]["type"], "function_call");
+    assert_eq!(parsed["input"][1]["call_id"], "call_1");
+    assert_eq!(parsed["input"][1]["name"], "get_weather");
+    assert_eq!(parsed["input"][2]["type"], "function_call_output");
+    assert_eq!(parsed["input"][2]["call_id"], "call_1");
+    assert_eq!(parsed["input"][2]["output"], "25C");
+}
+
+#[cfg(feature = "responses")]
+#[test]
+fn responses_prepare_rejects_unsupported_fields() {
+    let backend = OpenAiResponsesBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build responses backend");
+
+    let request = GenerationRequest::new("gpt-5.6", vec![Message::user("x")]).with_top_k(10);
+    let error = backend.prepare(request).unwrap_err();
+    assert!(matches!(error, BackendError::InvalidRequest(_)));
+
+    let request = GenerationRequest::new("gpt-5.6", vec![Message::user("x")])
+        .with_stop_sequences(StopSequence::Single("END".to_owned()));
+    let error = backend.prepare(request).unwrap_err();
+    assert!(matches!(error, BackendError::InvalidRequest(_)));
+}
+
+#[cfg(feature = "responses")]
+#[tokio::test]
+async fn responses_adapter_streams_events() {
+    let server = MockServer::start().await;
+    let body = concat!(
+        "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hel\"}\n\n",
+        "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"lo\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"created_at\":1,\"status\":\"completed\",\"model\":\"gpt-5.6\",\"output\":[]}}\n\n",
+        "data: [DONE]\n\n"
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/responses"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(body, "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let backend = responses_backend(&server);
+    let mut stream = backend
+        .stream_generate(GenerationRequest::new("gpt-5.6", vec![Message::user("hi")]))
+        .await
+        .unwrap();
+
+    let first = stream.next().await.unwrap().unwrap();
+    assert!(matches!(first, GenerationEvent::Text { delta } if delta == "Hel"));
+
+    let second = stream.next().await.unwrap().unwrap();
+    assert!(matches!(second, GenerationEvent::Text { delta } if delta == "lo"));
+
+    let end = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        end,
+        GenerationEvent::End {
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::Stop)
+        }
+    ));
+
+    assert!(stream.next().await.is_none());
+}
+
+// --- Anthropic tests ---
+
+#[cfg(feature = "anthropic")]
+fn anthropic_backend(server: &MockServer) -> Arc<dyn LlmBackend> {
+    let uri = server.uri();
+    AnthropicBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some(&uri),
+    )
+    .expect("failed to build anthropic backend")
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_adapter_maps_generation_with_tools_and_thinking() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                { "type": "thinking", "thinking": "need the weather", "signature": "sig_1" },
+                { "type": "text", "text": "Checking the weather." },
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "get_weather",
+                    "input": { "city": "Paris" }
+                }
+            ],
+            "model": "claude-opus-5",
+            "stop_reason": "tool_use",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 8,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "output_tokens_details": { "thinking_tokens": 3 }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = anthropic_backend(&server);
+    let response = backend
+        .generate(
+            GenerationRequest::new("claude-opus-5", vec![Message::user("weather?")])
+                .with_max_tokens(1024),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.text(), Some("Checking the weather."));
+    assert_eq!(
+        response.finish_reason,
+        Some(just_llm_client::types::generation::FinishReason::ToolCalls)
+    );
+    assert_eq!(response.tool_calls().len(), 1);
+    assert_eq!(response.tool_calls()[0].id, "toolu_1");
+    assert_eq!(response.tool_calls()[0].name, "get_weather");
+    assert_eq!(response.tool_calls()[0].arguments, r#"{"city":"Paris"}"#);
+    let reasoning = response.reasoning().expect("thinking should be present");
+    assert_eq!(reasoning.text.as_deref(), Some("need the weather"));
+    assert_eq!(reasoning.signature.as_deref(), Some("sig_1"));
+    assert_eq!(
+        response
+            .usage
+            .as_ref()
+            .unwrap()
+            .completion_tokens_details
+            .as_ref()
+            .unwrap()
+            .reasoning_tokens,
+        Some(3)
+    );
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn anthropic_prepare_extracts_system_and_requires_max_tokens() {
+    let backend = AnthropicBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build anthropic backend");
+
+    let request = GenerationRequest::new(
+        "claude-opus-5",
+        vec![Message::system("You are concise."), Message::user("Hi")],
+    )
+    .with_max_tokens(256);
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    assert_eq!(parsed["system"], "You are concise.");
+    assert_eq!(parsed["max_tokens"], 256);
+    assert_eq!(parsed["messages"][0]["role"], "user");
+    assert_eq!(parsed["messages"][0]["content"], "Hi");
+
+    // max_tokens is required by Anthropic; its absence is an explicit error.
+    let request = GenerationRequest::new("claude-opus-5", vec![Message::user("Hi")]);
+    let error = backend.prepare(request).unwrap_err();
+    assert!(matches!(error, BackendError::InvalidRequest(_)));
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn anthropic_prepare_maps_tool_result_to_user_message() {
+    let backend = AnthropicBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build anthropic backend");
+
+    let request = GenerationRequest::new(
+        "claude-opus-5",
+        vec![
+            Message::assistant_tool_calls(
+                None,
+                vec![ToolCall {
+                    id: "toolu_1".to_owned(),
+                    name: "get_weather".to_owned(),
+                    arguments: r#"{"city":"Paris"}"#.to_owned(),
+                }],
+                None,
+            ),
+            Message::tool("25C", "toolu_1"),
+        ],
+    )
+    .with_max_tokens(256);
+
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    // The assistant message carries a tool_use block.
+    assert_eq!(parsed["messages"][0]["role"], "assistant");
+    assert_eq!(parsed["messages"][0]["content"][0]["type"], "tool_use");
+    assert_eq!(parsed["messages"][0]["content"][0]["name"], "get_weather");
+    assert_eq!(
+        parsed["messages"][0]["content"][0]["input"]["city"],
+        "Paris"
+    );
+
+    // The tool result becomes a user message with a tool_result block.
+    assert_eq!(parsed["messages"][1]["role"], "user");
+    assert_eq!(parsed["messages"][1]["content"][0]["type"], "tool_result");
+    assert_eq!(
+        parsed["messages"][1]["content"][0]["tool_use_id"],
+        "toolu_1"
+    );
+    assert_eq!(parsed["messages"][1]["content"][0]["content"], "25C");
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_adapter_streams_events() {
+    let server = MockServer::start().await;
+    let body = concat!(
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-5\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"Paris\\\"}\"}}\n\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n",
+        "data: {\"type\":\"message_stop\"}\n\n"
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(body, "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let backend = anthropic_backend(&server);
+    let mut stream = backend
+        .stream_generate(
+            GenerationRequest::new("claude-opus-5", vec![Message::user("hi")])
+                .with_max_tokens(1024),
+        )
+        .await
+        .unwrap();
+
+    // The tool_use block start carries id/name and the block index.
+    let tool_start = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        tool_start,
+        GenerationEvent::ToolCall { delta } if delta.index == Some(0) && delta.id.as_deref() == Some("toolu_1") && delta.name.as_deref() == Some("get_weather")
+    ));
+
+    // input_json_delta appends arguments.
+    let args = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        args,
+        GenerationEvent::ToolCall { delta } if delta.arguments.as_deref() == Some("{\"city\":\"Paris\"}")
+    ));
+
+    // message_delta terminates with the finish reason and the final merged usage.
+    let end = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        end,
+        GenerationEvent::End {
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::ToolCalls)
+        }
+    ));
+
+    let usage = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        usage,
+        GenerationEvent::Usage { usage } if usage.prompt_tokens == 10 && usage.completion_tokens == 5
+    ));
+
+    assert!(stream.next().await.is_none());
+}
+
+#[cfg(feature = "deepseek")]
+#[tokio::test]
+async fn deepseek_adapter_streams_events() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(
+                    concat!(
+                        "data: {\"id\":\"chatcmpl-s\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"think\"}}]}\n\n",
+                        "data: {\"id\":\"chatcmpl-s\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\n\n",
+                        "data: {\"id\":\"chatcmpl-s\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+                        "data: [DONE]\n"
+                    ),
+                    "text/event-stream",
+                ),
+        )
+        .mount(&server)
+        .await;
+
+    let backend = deepseek_backend(&server);
+    let mut stream = backend
+        .stream_generate(GenerationRequest::new(
+            "deepseek-v4-pro",
+            vec![Message::user("hi")],
+        ))
+        .await
+        .unwrap();
+
+    let reasoning = stream.next().await.unwrap().unwrap();
+    assert!(matches!(reasoning, GenerationEvent::Reasoning { delta } if delta == "think"));
+
+    let text = stream.next().await.unwrap().unwrap();
+    assert!(matches!(text, GenerationEvent::Text { delta } if delta == "hi"));
+
+    let end = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        end,
+        GenerationEvent::End {
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::Stop)
+        }
+    ));
+
+    assert!(stream.next().await.is_none());
 }

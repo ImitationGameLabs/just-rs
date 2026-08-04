@@ -5,11 +5,10 @@ use std::{marker::PhantomData, sync::Arc};
 use async_trait::async_trait;
 use futures_util::stream;
 use just_llm_client::{
-    BackendConstructError, BackendError, BackendFactory, CapabilityNegotiation, ChatClient,
-    ChatClientOptions, ChatCompletionStream, Identifiable, LlmBackend,
-    types::chat::{
-        AssistantMessage, AssistantRole, ChatChoice, ChatCompletionRequest, ChatCompletionResponse,
-        ChatMessage, ToolDefinition,
+    BackendConstructError, BackendError, BackendFactory, CapabilityNegotiation, GenerationClient,
+    GenerationClientOptions, GenerationStream, Identifiable, LlmBackend,
+    types::generation::{
+        AssistantMessage, GenerationRequest, GenerationResponse, Message, ToolDefinition,
     },
 };
 
@@ -35,8 +34,8 @@ impl<F: TestBackendFamily> CapabilityNegotiation for TestBackend<F> {}
 
 #[async_trait]
 impl<F: TestBackendFamily> LlmBackend for TestBackend<F> {
-    fn prepare(&self, request: ChatCompletionRequest) -> Result<reqwest::Request, BackendError> {
-        // Points at an unreachable URL; `chat_completion` is overridden below so this is never sent.
+    fn prepare(&self, request: GenerationRequest) -> Result<reqwest::Request, BackendError> {
+        // Points at an unreachable URL; `generate` is overridden below so this is never sent.
         self.http
             .post("http://127.0.0.1:0/chat/completions")
             .json(&serde_json::json!({
@@ -49,44 +48,44 @@ impl<F: TestBackendFamily> LlmBackend for TestBackend<F> {
 
     fn prepare_streaming(
         &self,
-        request: ChatCompletionRequest,
+        request: GenerationRequest,
     ) -> Result<reqwest::Request, BackendError> {
         self.prepare(request)
     }
 
     async fn send(&self, _prepared: reqwest::Request) -> Result<reqwest::Response, BackendError> {
-        unreachable!("send is not used: chat_completion is overridden")
+        unreachable!("send is not used: generate is overridden")
     }
 
-    async fn chat_completion(
+    async fn generate(
         &self,
-        request: ChatCompletionRequest,
-    ) -> Result<ChatCompletionResponse, BackendError> {
+        request: GenerationRequest,
+    ) -> Result<GenerationResponse, BackendError> {
         Ok(response_for_model(request.model))
     }
 
-    async fn stream_chat_completion(
+    async fn stream_generate(
         &self,
-        _request: ChatCompletionRequest,
-    ) -> Result<ChatCompletionStream, BackendError> {
-        Ok(ChatCompletionStream::new(Box::pin(stream::empty())))
+        _request: GenerationRequest,
+    ) -> Result<GenerationStream, BackendError> {
+        Ok(GenerationStream::new(Box::pin(stream::empty())))
     }
 
     async fn parse(
         &self,
         _response: reqwest::Response,
-    ) -> Result<ChatCompletionResponse, BackendError> {
-        unreachable!("parse is not used: chat_completion is overridden")
+    ) -> Result<GenerationResponse, BackendError> {
+        unreachable!("parse is not used: generate is overridden")
     }
 
     async fn parse_streaming(
         &self,
         _response: reqwest::Response,
-    ) -> Result<ChatCompletionStream, BackendError> {
-        unreachable!("parse_streaming is not used: stream_chat_completion is overridden")
+    ) -> Result<GenerationStream, BackendError> {
+        unreachable!("parse_streaming is not used: stream_generate is overridden")
     }
 
-    fn render_messages(&self, _messages: &[ChatMessage]) -> Result<String, BackendError> {
+    fn render_messages(&self, _messages: &[Message]) -> Result<String, BackendError> {
         Ok(F::RENDER.to_owned())
     }
 
@@ -117,24 +116,16 @@ impl<F: TestBackendFamily> LlmBackend for TestBackend<F> {
     }
 }
 
-fn response_for_model(model: String) -> ChatCompletionResponse {
-    ChatCompletionResponse {
+fn response_for_model(model: String) -> GenerationResponse {
+    GenerationResponse {
         id: "test-response".to_owned(),
-        choices: vec![ChatChoice {
-            finish_reason: None,
-            index: 0,
-            logprobs: None,
-            message: AssistantMessage {
-                content: Some("ok".to_owned()),
-                reasoning_content: None,
-                tool_calls: None,
-                role: AssistantRole::Assistant,
-            },
-        }],
-        created: 0,
         model,
-        system_fingerprint: None,
-        object: "chat.completion".to_owned(),
+        message: AssistantMessage {
+            content: Some("ok".to_owned()),
+            tool_calls: Vec::new(),
+            reasoning: None,
+        },
+        finish_reason: None,
         usage: None,
     }
 }
@@ -169,11 +160,11 @@ fn factory_create_builds_named_backend() {
     let backend = factory
         .create("solo", reqwest::Client::builder(), "key", None)
         .unwrap_or_else(|e| panic!("create failed: {e}"));
-    let client = ChatClient::new(
+    let client = GenerationClient::new(
         backend,
-        ChatClientOptions::new("test-model").with_system_prompt("Be concise."),
+        GenerationClientOptions::new("test-model").with_system_prompt("Be concise."),
     );
-    let request = client.create_request(vec![ChatMessage::user("hello")]);
+    let request = client.create_request(vec![Message::user("hello")]);
 
     assert_eq!(client.family(), "solo");
     assert_eq!(client.model(), "test-model");

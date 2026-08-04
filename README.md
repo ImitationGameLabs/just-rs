@@ -8,14 +8,14 @@ Not an agent framework, not a platform — just the LLM client. Minimal, well-ab
 
 A lightweight, provider-neutral abstraction that sits on top of the provider type crates. Use it when you want one code path that can target multiple providers, or when you want prepare-send-parse patterns and capability negotiation.
 
-- **Capability-oriented traits.** Each operation is its own trait — `ModelCatalog`, `Balance`. Backends implement only what they support, with chat completion provided by the unified `LlmBackend` trait.
+- **Capability-oriented traits.** Each operation is its own trait — `ModelCatalog`, `Balance`. Backends implement only what they support, with generation provided by the unified `LlmBackend` trait.
 - **Explicit capability negotiation.** Optional capabilities are requested upfront — unsupported backends fail immediately, not at call time.
 - **Prepare-send-parse pattern.** Build a `reqwest::Request`, optionally inspect/modify it, then send, then parse. Callers get full access to the HTTP response including headers (`retry-after`, `x-ratelimit-*`) before deserializing.
 
 ```rust
 use just_llm_client::{
     provider::{DeepSeekBackend, LlmBackend},
-    types::chat::{ChatCompletionRequest, ChatMessage},
+    types::generation::{GenerationRequest, Message},
 };
 
 let backend = DeepSeekBackend::new(
@@ -23,17 +23,17 @@ let backend = DeepSeekBackend::new(
     "your-api-key",
     None, // base_url = None uses the provider default
 )?;
-let response = backend.chat_completion(
-    ChatCompletionRequest::new(
+let response = backend.generate(
+    GenerationRequest::new(
         "deepseek-v4-flash",
-        vec![ChatMessage::user("Say hello.")],
+        vec![Message::user("Say hello.")],
     ),
 ).await?;
 ```
 
 #### Bring your own backend
 
-just-agent-libs aims to support more model providers over time. But if your provider is not yet covered, or you are a model provider with a custom API that does not follow any well-known protocol, you can easily build your own backend by implementing the `LlmBackend` trait. It requires `Identifiable + CapabilityNegotiation + Send + Sync` and seven methods: `prepare`, `prepare_streaming`, `send`, `parse`, `parse_streaming`, `render_messages`, `render_tools`. (`chat_completion` and `stream_chat_completion` have default implementations that compose `prepare` + `send` + `parse`, so override them only for non-HTTP backends.)
+just-agent-libs aims to support more model providers over time. But if your provider is not yet covered, or you are a model provider with a custom API that does not follow any well-known protocol, you can easily build your own backend by implementing the `LlmBackend` trait. It requires `Identifiable + CapabilityNegotiation + Send + Sync` and seven methods: `prepare`, `prepare_streaming`, `send`, `parse`, `parse_streaming`, `render_messages`, `render_tools`. (`generate` and `stream_generate` have default implementations that compose `prepare` + `send` + `parse`, so override them only for non-HTTP backends.)
 
 ```rust
 struct MyBackend { /* ... */ }
@@ -46,28 +46,28 @@ impl CapabilityNegotiation for MyBackend {}
 
 #[async_trait]
 impl LlmBackend for MyBackend {
-    fn prepare(&self, request: ChatCompletionRequest)
+    fn prepare(&self, request: GenerationRequest)
         -> Result<reqwest::Request, BackendError> { /* ... */ }
 
-    fn prepare_streaming(&self, request: ChatCompletionRequest)
+    fn prepare_streaming(&self, request: GenerationRequest)
         -> Result<reqwest::Request, BackendError> { /* ... */ }
 
     async fn send(&self, prepared: reqwest::Request)
         -> Result<reqwest::Response, BackendError> { /* ... */ }
 
     async fn parse(&self, response: reqwest::Response)
-        -> Result<ChatCompletionResponse, BackendError> { /* ... */ }
+        -> Result<GenerationResponse, BackendError> { /* ... */ }
 
     async fn parse_streaming(&self, response: reqwest::Response)
-        -> Result<ChatCompletionStream, BackendError> { /* ... */ }
+        -> Result<GenerationStream, BackendError> { /* ... */ }
 
-    fn render_messages(&self, messages: &[ChatMessage])
+    fn render_messages(&self, messages: &[Message])
         -> Result<String, BackendError> { /* ... */ }
 
     fn render_tools(&self, tools: &[ToolDefinition])
         -> Result<String, BackendError> { /* ... */ }
 
-    // chat_completion and stream_chat_completion have default impls
+    // generate and stream_generate have default impls
     // (prepare + send + parse); override only for non-HTTP backends.
 }
 ```

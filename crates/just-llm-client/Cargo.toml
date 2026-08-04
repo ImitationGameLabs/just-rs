@@ -14,6 +14,8 @@ categories = ["api-bindings", "asynchronous", "web-programming::http-client"]
 default = ["deepseek", "openai-compat"]
 deepseek = ["dep:just-deepseek"]
 openai-compat = ["dep:just-openai-compat"]
+responses = ["dep:just-openai-responses"]
+anthropic = ["dep:just-anthropic"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -24,6 +26,8 @@ futures-core = { workspace = true }
 reqwest = { workspace = true }
 futures-util = { workspace = true }
 just-openai-compat = { workspace = true, optional = true }
+just-openai-responses = { workspace = true, optional = true }
+just-anthropic = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -56,3 +60,11 @@ required-features = ["deepseek"]
 [[example]]
 name = "openai_compat_tool_call"
 required-features = ["openai-compat"]
+
+[[example]]
+name = "openai_responses_simple_chat"
+required-features = ["responses"]
+
+[[example]]
+name = "anthropic_simple_chat"
+required-features = ["anthropic"]

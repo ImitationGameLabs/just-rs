@@ -1,12 +1,12 @@
-//! Unified chat client and backend factory.
+//! Unified generation client and backend factory.
 //!
 //! Two building blocks on top of the concrete backend adapters:
 //!
 //! - [`BackendFactory`] dispatches a backend family string to that backend's
 //!   [`LlmBackend::new`] constructor — a composable `family ->
 //!   constructor` primitive with no caching or held configuration.
-//! - [`ChatClient`] pairs per-call request defaults (model, system prompt) with a shared
-//!   [`LlmBackend`](crate::LlmBackend) and derefs to `dyn LlmBackend` so chat and capability
+//! - [`GenerationClient`] pairs per-call request defaults (model, system prompt) with a shared
+//!   [`LlmBackend`](crate::LlmBackend) and derefs to `dyn LlmBackend` so generation and capability
 //!   methods are reachable directly.
 //!
 //! Backends can also be constructed directly via
@@ -19,19 +19,19 @@ use std::{ops::Deref, sync::Arc};
 
 use crate::{
     provider::LlmBackend,
-    types::chat::{ChatCompletionRequest, ChatMessage},
+    types::generation::{GenerationRequest, Message},
 };
 
 pub use factory::BackendFactory;
 
-/// Per-call defaults for constructing a [`ChatClient`].
+/// Per-call defaults for constructing a [`GenerationClient`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChatClientOptions {
+pub struct GenerationClientOptions {
     model: String,
     system_prompt: Option<String>,
 }
 
-impl ChatClientOptions {
+impl GenerationClientOptions {
     /// Create options with a required default model.
     pub fn new(model: impl Into<String>) -> Self {
         Self {
@@ -59,23 +59,23 @@ impl ChatClientOptions {
 
 /// Thin facade that pairs per-call default request values with a shared backend.
 ///
-/// Constructed via [`ChatClient::new`], typically with a backend produced by a
+/// Constructed via [`GenerationClient::new`], typically with a backend produced by a
 /// [`BackendFactory`] or by [`LlmBackend::new`] directly. Implements
-/// [`Deref`] to [`dyn LlmBackend`](crate::LlmBackend) so the direct and prepared chat execution
+/// [`Deref`] to [`dyn LlmBackend`](crate::LlmBackend) so the direct and prepared generation
 /// paths, plus capability negotiation methods, are accessible directly.
 #[derive(Clone)]
-pub struct ChatClient {
+pub struct GenerationClient {
     model: String,
     system_prompt: Option<String>,
     backend: Arc<dyn LlmBackend>,
 }
 
-impl ChatClient {
+impl GenerationClient {
     /// Create a client pairing per-call defaults with a shared backend.
     ///
     /// The backend identity (family) is available via [`family`](crate::Identifiable::family)
     /// through the [`Deref`] to [`LlmBackend`].
-    pub fn new(backend: Arc<dyn LlmBackend>, options: ChatClientOptions) -> Self {
+    pub fn new(backend: Arc<dyn LlmBackend>, options: GenerationClientOptions) -> Self {
         Self {
             model: options.model,
             system_prompt: options.system_prompt,
@@ -113,8 +113,8 @@ impl ChatClient {
 
     /// Create a request pre-filled with this client's default model and system prompt.
     #[must_use = "the returned request must be passed to a backend method to have any effect"]
-    pub fn create_request(&self, messages: Vec<ChatMessage>) -> ChatCompletionRequest {
-        let mut request = ChatCompletionRequest::new(self.model.clone(), messages);
+    pub fn create_request(&self, messages: Vec<Message>) -> GenerationRequest {
+        let mut request = GenerationRequest::new(self.model.clone(), messages);
         if let Some(system_prompt) = &self.system_prompt {
             request = request.with_system_prompt(system_prompt.clone());
         }
@@ -122,7 +122,7 @@ impl ChatClient {
     }
 }
 
-impl Deref for ChatClient {
+impl Deref for GenerationClient {
     type Target = dyn crate::LlmBackend;
 
     fn deref(&self) -> &Self::Target {
@@ -130,9 +130,9 @@ impl Deref for ChatClient {
     }
 }
 
-impl std::fmt::Debug for ChatClient {
+impl std::fmt::Debug for GenerationClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ChatClient")
+        f.debug_struct("GenerationClient")
             .field("family", &self.backend.family())
             .field("model", &self.model)
             .field("has_system_prompt", &self.system_prompt.is_some())

@@ -4,7 +4,7 @@
 
 mod common;
 
-use just_llm_client::types::chat::ChatMessage;
+use just_llm_client::types::generation::Message;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,16 +19,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  [system] {}", client.system_prompt().unwrap_or(""),);
     println!("  [user] {prompt}");
 
-    let request = client.create_request(vec![ChatMessage::user(prompt)]);
-    let response = client.chat_completion(request).await?;
+    let request = client.create_request(vec![Message::user(prompt)]);
+    let response = client.generate(request).await?;
 
     println!("\n--- response 1 ---");
-    if let Some(rc) = response.first_choice_reasoning_content() {
-        println!("  [reasoning] {rc}");
+    if let Some(text) = response.reasoning().and_then(|r| r.text.as_deref()) {
+        println!("  [reasoning] {text}");
     }
-    println!(
-        "  [assistant] {}",
-        response.first_choice_content().unwrap_or_default()
-    );
+    println!("  [assistant] {}", response.text().unwrap_or_default());
     Ok(())
 }

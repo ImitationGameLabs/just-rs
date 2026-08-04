@@ -1,3 +1,6 @@
+//! Shared semantic value types shared by requests and responses.
+#![allow(missing_docs)]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -24,13 +27,6 @@ pub enum ResponseFormatType {
 pub enum StopSequence {
     Single(String),
     Multiple(Vec<String>),
-}
-
-/// Streaming-specific options.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct StreamOptions {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_usage: Option<bool>,
 }
 
 /// Tool definition passed to the model.
@@ -94,42 +90,19 @@ pub enum ToolType {
     Function,
 }
 
-/// Tool call emitted in a non-streaming assistant response.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ChatToolCall {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub kind: ToolType,
-    pub function: FunctionCall,
-}
-
-/// Incremental tool-call payload emitted during streaming.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ChatCompletionChunkToolCall {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub index: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ToolType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function: Option<FunctionCallDelta>,
-}
-
-/// Function invocation payload.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct FunctionCall {
-    pub name: String,
-    pub arguments: String,
-}
-
-/// Incremental function-call payload emitted during streaming.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct FunctionCallDelta {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub arguments: Option<String>,
+/// Requested reasoning effort.
+///
+/// A union of the levels the built-in providers expose (Responses and Anthropic use
+/// low/medium/high; DeepSeek uses high/max). A backend that cannot express a requested level
+/// reports an invalid request rather than silently approximating it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+    Max,
 }
 
 /// Common completion stop reasons normalized by the client layer.
@@ -142,6 +115,12 @@ pub enum FinishReason {
     ContentFilter,
     ToolCalls,
     InsufficientSystemResource,
+    /// A policy refusal stopped the response (Anthropic `stop_reason: "refusal"`).
+    Refusal,
+    /// Generation hit the model's context-window limit.
+    ModelContextWindowExceeded,
+    /// A long-running turn was paused; resend the response as-is to continue.
+    PauseTurn,
 }
 
 /// Token usage metadata.
@@ -165,32 +144,4 @@ pub struct Usage {
 pub struct CompletionTokensDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<u32>,
-}
-
-/// Logprob payload for completion tokens.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ChatCompletionLogprobs {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<Vec<TokenLogprob>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_content: Option<Vec<TokenLogprob>>,
-}
-
-/// Logprob metadata for a single token.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct TokenLogprob {
-    pub token: String,
-    pub logprob: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bytes: Option<Vec<u8>>,
-    pub top_logprobs: Vec<TopLogprob>,
-}
-
-/// Top alternative logprob for a token.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct TopLogprob {
-    pub token: String,
-    pub logprob: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bytes: Option<Vec<u8>>,
 }

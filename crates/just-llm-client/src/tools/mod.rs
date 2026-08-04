@@ -1,7 +1,7 @@
 //! Local tool runtime helpers.
 //!
 //! Application-side runtime for composing local
-//! executable tools, converting them into [`ToolDefinition`](crate::types::chat::ToolDefinition)
+//! executable tools, converting them into [`ToolDefinition`](crate::types::generation::ToolDefinition)
 //! values, and dispatching model-emitted tool calls by name.
 
 mod dispatch;

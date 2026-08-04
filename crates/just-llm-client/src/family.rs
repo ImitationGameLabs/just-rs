@@ -18,3 +18,15 @@ pub const DEEPSEEK: &str = "deepseek";
 /// backend and the key under which a [`BackendFactory`](crate::BackendFactory) registers/looks
 /// it up.
 pub const OPENAI_COMPATIBLE: &str = "openai-compatible";
+
+/// OpenAI Responses backend family.
+///
+/// Matches [`Identifiable::family`](crate::Identifiable::family) for the Responses backend and
+/// the key under which a [`BackendFactory`](crate::BackendFactory) registers/looks it up.
+pub const OPENAI_RESPONSES: &str = "openai-responses";
+
+/// Anthropic backend family.
+///
+/// Matches [`Identifiable::family`](crate::Identifiable::family) for the Anthropic backend and
+/// the key under which a [`BackendFactory`](crate::BackendFactory) registers/looks it up.
+pub const ANTHROPIC: &str = "anthropic";

@@ -7,7 +7,7 @@ Just a lightweight, composable, and minimal LLM client — not an agent framewor
 ```toml
 # Cargo.toml
 [dependencies]
-just-llm-client = "0.1"
+just-llm-client = "0.2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -15,7 +15,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 use just_llm_client::{
     LlmBackend,
     provider::DeepSeekBackend,
-    types::chat::{ChatCompletionRequest, ChatMessage},
+    types::generation::{GenerationRequest, Message},
 };
 
 #[tokio::main]
@@ -27,32 +27,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let response = backend
-        .chat_completion(
-            ChatCompletionRequest::new(
+        .generate(
+            GenerationRequest::new(
                 "deepseek-chat",
-                vec![ChatMessage::user("Say hello in one sentence.")],
+                vec![Message::user("Say hello in one sentence.")],
             )
             .with_system_prompt("You are a concise assistant."),
         )
         .await?;
 
-    println!("{}", response.first_choice_content().unwrap_or_default());
+    println!("{}", response.text().unwrap_or_default());
     Ok(())
 }
 ```
 
 ## Feature flags
 
-| Feature         | Default | Description                                |
-| --------------- | ------- | ------------------------------------------ |
-| `deepseek`      | yes     | Enables the [`just-deepseek`] backend      |
-| `openai-compat` | yes     | Enables the [`just-openai-compat`] backend |
+| Feature         | Default | Description                                     |
+| --------------- | ------- | ----------------------------------------------- |
+| `deepseek`      | yes     | Enables the [`just-deepseek`] backend           |
+| `openai-compat` | yes     | Enables the [`just-openai-compat`] backend      |
+| `responses`     | no      | Enables the [`just-openai-responses`] backend   |
+| `anthropic`     | no      | Enables the [`just-anthropic`] backend          |
 
-Both providers are enabled by default. Disable default features and enable only what you need:
+The DeepSeek and OpenAI-compatible backends are enabled by default. Disable default features and
+enable only what you need:
 
 ```toml
 [dependencies]
-just-llm-client = { version = "0.1", default-features = false, features = ["deepseek"] }
+just-llm-client = { version = "0.2", default-features = false, features = ["deepseek"] }
 ```
 
 ## Ecosystem
@@ -61,8 +64,12 @@ just-llm-client = { version = "0.1", default-features = false, features = ["deep
 | -------------------- | ----------------------------------------------- |
 | [just-deepseek]      | DeepSeek API client + wire-level types          |
 | [just-openai-compat] | OpenAI-compatible API client + wire-level types |
+| [just-openai-responses] | OpenAI Responses API client + wire-level types |
+| [just-anthropic]     | Anthropic Messages API client + wire-level types |
 | [just-common]        | Shared HTTP transport and error types           |
 
 [just-deepseek]: https://crates.io/crates/just-deepseek
 [just-openai-compat]: https://crates.io/crates/just-openai-compat
+[just-openai-responses]: https://crates.io/crates/just-openai-responses
+[just-anthropic]: https://crates.io/crates/just-anthropic
 [just-common]: https://crates.io/crates/just-common

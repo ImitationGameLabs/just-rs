@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use crate::types::chat::ToolDefinition;
+use crate::types::generation::ToolDefinition;
 
 use super::{LlmTool, ToolCallError, ToolRegistrationError};
 
