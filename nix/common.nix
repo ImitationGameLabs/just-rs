@@ -63,6 +63,7 @@ let
     just-deepseek = "crates/providers/just-deepseek";
     just-openai-compat = "crates/providers/just-openai-compat";
     just-openai-responses = "crates/providers/just-openai-responses";
+    just-anthropic = "crates/providers/just-anthropic";
     just-llm-client = "crates/just-llm-client";
   };
 in

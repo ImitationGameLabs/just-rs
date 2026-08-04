@@ -693,6 +693,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "just-anthropic"
+version = "0.1.0"
+dependencies = [
+ "dotenvy",
+ "futures-core",
+ "futures-util",
+ "just-common",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "wiremock",
+]
+
+[[package]]
 name = "just-common"
 version = "0.2.0"
 dependencies = [
@@ -703,6 +718,8 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "tokio",
+ "wiremock",
 ]
 
 [[package]]

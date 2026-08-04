@@ -1,4 +1,4 @@
-//! Shared HTTP transport helpers for OpenAI-like providers.
+//! Shared HTTP transport helpers for provider clients.
 //!
 //! # Status-checking invariant
 //!
@@ -38,7 +38,24 @@ pub fn build_client(
     let auth_value = HeaderValue::from_str(&format!("Bearer {api_key}"))
         .map_err(|_| TransportError::InvalidConfig("api key contains invalid header characters"))?;
     default_headers.insert(AUTHORIZATION, auth_value);
-    default_headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+
+    build_client_with_headers(builder, default_headers)
+}
+
+/// Applies a caller-provided set of default headers to a builder, then builds.
+///
+/// Unlike [`build_client`] (which forces Bearer auth), this is for providers with a different
+/// authentication scheme — e.g. Anthropic's `x-api-key` plus `anthropic-version` headers. A JSON
+/// `Accept` header is guaranteed: it defaults to `application/json` and is only overridden if the
+/// caller supplied one. Custom transport settings (TLS, proxy, connection pool) are preserved via
+/// the caller-provided builder.
+pub fn build_client_with_headers(
+    builder: reqwest::ClientBuilder,
+    mut default_headers: HeaderMap,
+) -> Result<reqwest::Client, TransportError> {
+    default_headers
+        .entry(ACCEPT)
+        .or_insert_with(|| HeaderValue::from_static("application/json"));
 
     builder
         .default_headers(default_headers)
@@ -289,5 +306,85 @@ mod tests {
             buf.is_empty(),
             "buffer must stay empty when the first chunk overflows"
         );
+    }
+
+    #[tokio::test]
+    async fn build_client_with_headers_sends_custom_headers() {
+        let server = wiremock::MockServer::start().await;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::HeaderName::from_static("x-api-key"),
+            HeaderValue::from_static("sk-ant-abc"),
+        );
+        headers.insert(
+            reqwest::header::HeaderName::from_static("anthropic-version"),
+            HeaderValue::from_static("2023-06-01"),
+        );
+
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/v1/messages"))
+            .and(wiremock::matchers::header("x-api-key", "sk-ant-abc"))
+            .and(wiremock::matchers::header(
+                "anthropic-version",
+                "2023-06-01",
+            ))
+            // The JSON Accept header is injected when absent.
+            .and(wiremock::matchers::header("accept", "application/json"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = build_client_with_headers(reqwest::Client::builder(), headers).unwrap();
+        let response = client
+            .get(format!("{}/v1/messages", server.uri()))
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+    }
+
+    #[tokio::test]
+    async fn build_client_with_headers_sends_custom_accept() {
+        let server = wiremock::MockServer::start().await;
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT, HeaderValue::from_static("application/ndjson"));
+
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/"))
+            // A caller-supplied Accept wins over the default.
+            .and(wiremock::matchers::header("accept", "application/ndjson"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = build_client_with_headers(reqwest::Client::builder(), headers).unwrap();
+        let response = client.get(server.uri()).send().await.unwrap();
+        assert!(response.status().is_success());
+    }
+
+    #[tokio::test]
+    async fn build_client_sends_bearer_and_accept() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/"))
+            .and(wiremock::matchers::header(
+                "authorization",
+                "Bearer test-key",
+            ))
+            .and(wiremock::matchers::header("accept", "application/json"))
+            .respond_with(wiremock::ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = build_client(reqwest::Client::builder(), "test-key").unwrap();
+        let response = client.get(server.uri()).send().await.unwrap();
+        assert!(response.status().is_success());
+    }
+
+    #[test]
+    fn build_client_rejects_invalid_key_header_chars() {
+        // Header values cannot contain newlines; build_client must surface InvalidConfig.
+        let err = build_client(reqwest::Client::builder(), "bad\nkey").unwrap_err();
+        assert!(matches!(err, TransportError::InvalidConfig(_)));
     }
 }

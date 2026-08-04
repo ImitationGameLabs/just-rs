@@ -1,10 +1,11 @@
 # Provider type crates
 
-The workspace includes three concrete provider type crates:
+The workspace includes four concrete provider type crates:
 
 - `just-deepseek`
 - `just-openai-compat`
 - `just-openai-responses`
+- `just-anthropic`
 
 These crates provide wire-level DTOs, HTTP transport helpers, and thin client wrappers that closely
 mirror the upstream provider API shapes.
@@ -29,6 +30,16 @@ If you want a provider-neutral abstraction, see [just-llm-client](just-llm-clien
 - `types::item` — Input and output items (messages, function calls, reasoning, ...)
 - `types::event` — SSE streaming events
 - `types::tool` — Tool definitions (function, custom, web search, file search)
+- `types::models` — Model listing response types
+
+## Anthropic types
+
+- `types::message` — Message params/content blocks and the response `Message` object
+- `types::request` — Message and token-counting request types
+- `types::tool` — Tool definitions and tool-choice configuration
+- `types::thinking` — Extended-thinking configuration
+- `types::event` — SSE streaming events
+- `types::usage` — Token accounting (including cache and thinking tokens)
 - `types::models` — Model listing response types
 
 ## Usage
@@ -67,6 +78,11 @@ JUST_LLM_OPENAI_COMPAT_MODEL=gpt-4.1-mini
 JUST_LLM_OPENAI_RESPONSES_API_KEY=your-openai-api-key
 #JUST_LLM_OPENAI_RESPONSES_BASE_URL=https://api.openai.com/v1
 JUST_LLM_OPENAI_RESPONSES_MODEL=gpt-5.6
+
+# Anthropic examples
+JUST_LLM_ANTHROPIC_API_KEY=your-anthropic-api-key
+#JUST_LLM_ANTHROPIC_BASE_URL=https://api.anthropic.com/v1
+JUST_LLM_ANTHROPIC_MODEL=claude-opus-5
 ```
 
 ## Runnable examples
@@ -77,8 +93,11 @@ cargo run -p just-llm-client --example openai_compat_simple_chat
 cargo run -p just-openai-responses --example responses_chat_completion
 cargo run -p just-openai-responses --example responses_streaming
 cargo run -p just-openai-responses --example responses_tool_calling
+cargo run -p just-anthropic --example anthropic_chat
+cargo run -p just-anthropic --example anthropic_streaming
+cargo run -p just-anthropic --example anthropic_tool_calling
 ```
 
 The `deepseek_simple_chat` and `openai_compat_simple_chat` examples use `just-llm-client`
 backends that internally serialize into the provider DTOs from these crates; the
-`responses_*` examples use the `just-openai-responses` client directly.
+`responses_*` and `anthropic_*` examples use their provider client directly.

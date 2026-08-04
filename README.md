@@ -85,8 +85,9 @@ protocol, or as building blocks for your own client layer or agent framework.
 | `just-deepseek`          | DeepSeek API client + wire-level types — chat completions, models, balance     |
 | `just-openai-compat`     | OpenAI-compatible API client + wire-level types — chat completions, models     |
 | `just-openai-responses`  | OpenAI Responses API client + wire-level types — responses, streaming, tools   |
+| `just-anthropic`         | Anthropic API client + wire-level types — messages, streaming, tools, thinking |
 
-Bindings for Google, xAI, Anthropic, and others are planned but deferred until needed. If you urgently need a specific provider, feel free to open an issue so we can prioritize it.
+Bindings for Google, xAI, and others are planned but deferred until needed. If you urgently need a specific provider, feel free to open an issue so we can prioritize it.
 
 ## Documentation
 
