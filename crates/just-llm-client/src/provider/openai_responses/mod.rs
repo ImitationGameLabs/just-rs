@@ -8,6 +8,13 @@
 //! [`CapabilityError::Unsupported`](crate::CapabilityError::Unsupported) because the Responses API
 //! does not expose a balance endpoint.
 //!
+//! This backend advertises stateful conversation support (see
+//! [`CapabilityNegotiation::supports_stateful_conversation`]): requests carrying
+//! [`previous_response_id`](crate::types::generation::GenerationRequest::previous_response_id)
+//! continue from a stored response, dropping `instructions` (the stored conversation carries the
+//! system prompt) and storing by default. The [`Conversation`](crate::Conversation) helper uses
+//! this to send only the new messages on pure appends.
+//!
 //! Construct from raw inputs (API key + optional base URL) via the [`LlmBackend::new`] trait
 //! method ([`LlmBackend`] must be in scope), via [`OpenAiResponsesBackend::from_provider_client`]
 //! with a pre-built provider client, or through a [`BackendFactory`](crate::BackendFactory) that
@@ -56,6 +63,10 @@ impl Identifiable for OpenAiResponsesBackend {
 impl CapabilityNegotiation for OpenAiResponsesBackend {
     fn model_catalog(&self) -> Result<&dyn ModelCatalog, CapabilityError> {
         Ok(self)
+    }
+
+    fn supports_stateful_conversation(&self) -> bool {
+        true
     }
 }
 

@@ -221,6 +221,11 @@ impl TryFrom<client_gen::GenerationRequest> for CreateMessageRequest {
                 "Anthropic does not support frequency_penalty or presence_penalty",
             ));
         }
+        if request.previous_response_id.is_some() || request.store.is_some() {
+            return Err(BackendError::invalid_request(
+                "Anthropic does not support stateful conversation (previous_response_id/store)",
+            ));
+        }
         if request.logprobs.is_some() || request.top_logprobs.is_some() {
             return Err(BackendError::invalid_request(
                 "Anthropic does not support logprobs",

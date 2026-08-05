@@ -614,7 +614,8 @@ async fn openai_compat_adapter_maps_streaming_tool_call_deltas() {
     assert!(matches!(
         end,
         GenerationEvent::End {
-            finish_reason: Some(just_llm_client::types::generation::FinishReason::ToolCalls)
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::ToolCalls),
+            ..
         }
     ));
 }
@@ -1034,6 +1035,99 @@ fn responses_prepare_rejects_unsupported_fields() {
 }
 
 #[cfg(feature = "responses")]
+#[test]
+fn responses_prepare_maps_stateful_continuation() {
+    let backend = OpenAiResponsesBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build responses backend");
+
+    // A continuation carries the previous id, forces storage, drops the system prompt (the stored
+    // conversation owns it), and requests encrypted reasoning when reasoning effort is set.
+    let request = GenerationRequest::new(
+        "gpt-5.6",
+        vec![
+            Message::system("You are concise."),
+            Message::user("And now?"),
+        ],
+    )
+    .with_previous_response_id("resp_1")
+    .with_reasoning_effort(just_llm_client::types::generation::ReasoningEffort::High);
+
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    assert_eq!(parsed["previous_response_id"], "resp_1");
+    assert_eq!(parsed["store"], true);
+    assert!(parsed.get("instructions").is_none());
+    assert_eq!(parsed["include"], json!(["reasoning.encrypted_content"]));
+}
+
+#[cfg(feature = "openai-compat")]
+#[test]
+fn openai_compat_prepare_rejects_stateful_fields() {
+    let backend = OpenAiCompatBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build openai-compat backend");
+
+    let request = GenerationRequest::new("gpt-4.1-mini", vec![Message::user("x")])
+        .with_previous_response_id("resp_1");
+    assert!(matches!(
+        backend.prepare(request),
+        Err(BackendError::InvalidRequest(_))
+    ));
+
+    let request = GenerationRequest::new("gpt-4.1-mini", vec![Message::user("x")]).with_store(true);
+    assert!(matches!(
+        backend.prepare(request),
+        Err(BackendError::InvalidRequest(_))
+    ));
+}
+
+#[cfg(feature = "deepseek")]
+#[test]
+fn deepseek_prepare_rejects_stateful_fields() {
+    let backend = DeepSeekBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build deepseek backend");
+
+    let request = GenerationRequest::new("deepseek-reasoner", vec![Message::user("x")])
+        .with_previous_response_id("resp_1");
+    assert!(matches!(
+        backend.prepare(request),
+        Err(BackendError::InvalidRequest(_))
+    ));
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn anthropic_prepare_rejects_stateful_fields() {
+    let backend = AnthropicBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build anthropic backend");
+
+    let request = GenerationRequest::new("claude-opus-5", vec![Message::user("x")])
+        .with_max_tokens(256)
+        .with_store(true);
+    assert!(matches!(
+        backend.prepare(request),
+        Err(BackendError::InvalidRequest(_))
+    ));
+}
+
+#[cfg(feature = "responses")]
 #[tokio::test]
 async fn responses_adapter_streams_events() {
     let server = MockServer::start().await;
@@ -1070,7 +1164,8 @@ async fn responses_adapter_streams_events() {
     assert!(matches!(
         end,
         GenerationEvent::End {
-            finish_reason: Some(just_llm_client::types::generation::FinishReason::Stop)
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::Stop),
+            ..
         }
     ));
 
@@ -1290,7 +1385,8 @@ async fn anthropic_adapter_streams_events() {
     assert!(matches!(
         end,
         GenerationEvent::End {
-            finish_reason: Some(just_llm_client::types::generation::FinishReason::ToolCalls)
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::ToolCalls),
+            ..
         }
     ));
 
@@ -1345,7 +1441,8 @@ async fn deepseek_adapter_streams_events() {
     assert!(matches!(
         end,
         GenerationEvent::End {
-            finish_reason: Some(just_llm_client::types::generation::FinishReason::Stop)
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::Stop),
+            ..
         }
     ));
 

@@ -13,6 +13,7 @@
 //! [`LlmBackend::new`] (the trait constructor, with the trait in scope),
 //! or from a pre-built provider client via each backend's `from_provider_client`.
 
+mod conversation;
 mod factory;
 
 use std::{ops::Deref, sync::Arc};
@@ -22,6 +23,7 @@ use crate::{
     types::generation::{GenerationRequest, Message},
 };
 
+pub use conversation::{Conversation, ConversationStream};
 pub use factory::BackendFactory;
 
 /// Per-call defaults for constructing a [`GenerationClient`].
@@ -119,6 +121,24 @@ impl GenerationClient {
             request = request.with_system_prompt(system_prompt.clone());
         }
         request
+    }
+
+    /// Starts a conversation bound to this client's backend.
+    ///
+    /// The caller owns the message list and passes the full logical context each turn; the
+    /// [`Conversation`] only decides the wire payload — sending just the delta plus
+    /// `previous_response_id` on Responses-family backends when the turn is a pure append, and a
+    /// full request otherwise. Server-side storage is enabled by default so chains can continue.
+    ///
+    /// ```ignore
+    /// let mut conv = client.conversation();
+    /// let first = conv.generate(client.create_request(vec![Message::user("Hi")])).await?;
+    /// let mut messages = vec![Message::user("Hi"), Message::assistant(first.text()?)];
+    /// messages.push(Message::user("And now?"));
+    /// let second = conv.generate(client.create_request(messages)).await?;
+    /// ```
+    pub fn conversation(&self) -> Conversation {
+        Conversation::new(self.backend.clone())
     }
 }
 

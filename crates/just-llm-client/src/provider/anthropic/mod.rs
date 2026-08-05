@@ -127,6 +127,7 @@ impl LlmBackend for AnthropicBackend {
                     let input = input_tokens.take().unwrap_or(0);
                     let mut events = vec![crate::types::generation::GenerationEvent::End {
                         finish_reason: conversions::wire_finish_reason(delta.stop_reason),
+                        response_id: None,
                     }];
                     if let Some(stream_usage) = usage {
                         let output = stream_usage.output_tokens;

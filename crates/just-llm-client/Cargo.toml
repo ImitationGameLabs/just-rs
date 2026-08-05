@@ -66,5 +66,9 @@ name = "openai_responses_simple_chat"
 required-features = ["responses"]
 
 [[example]]
+name = "conversation"
+required-features = ["responses"]
+
+[[example]]
 name = "anthropic_simple_chat"
 required-features = ["anthropic"]

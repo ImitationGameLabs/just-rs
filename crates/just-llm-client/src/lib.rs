@@ -22,7 +22,10 @@
 //! [`GenerationClient`] pairs per-call defaults (model, system prompt) with a shared
 //! [`LlmBackend`] and derefs to `dyn LlmBackend`, so generation and capability methods are
 //! reachable directly. Construct a backend via [`BackendFactory`] or [`LlmBackend::new`], then
-//! wrap it in a [`GenerationClient`].
+//! wrap it in a [`GenerationClient`]. For multi-turn conversations, [`Conversation`] (via
+//! [`GenerationClient::conversation`]) continues Responses-family backends statefully — sending
+//! only the new messages plus `previous_response_id` — and degrades to a full-resend replay on
+//! stateless backends.
 //!
 //! # Prepare-send-parse pattern
 //!
@@ -87,4 +90,6 @@ pub use provider::validation::{
 };
 pub use tools::{LlmTool, ToolCallError, ToolDispatcher, ToolRegistrationError};
 
-pub use client::{BackendFactory, GenerationClient, GenerationClientOptions};
+pub use client::{
+    BackendFactory, Conversation, ConversationStream, GenerationClient, GenerationClientOptions,
+};

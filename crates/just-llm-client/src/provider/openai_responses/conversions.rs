@@ -18,7 +18,7 @@ use just_openai_responses::types::{
     request::{CreateResponseRequest, ResponseInput},
     response::{IncompleteReason, Response, ResponseStatus, ResponseUsage},
     shared::{
-        ReasoningConfig, TextConfig, TextFormat, ToolChoice as WireToolChoice,
+        ReasoningConfig, ResponseIncludable, TextConfig, TextFormat, ToolChoice as WireToolChoice,
         ToolChoiceMode as WireToolChoiceMode,
     },
     tool::ResponseTool,
@@ -230,7 +230,8 @@ impl TryFrom<client_gen::GenerationRequest> for CreateResponseRequest {
             ));
         }
 
-        let (instructions, messages) = extract_instructions(request.messages)?;
+        let previous_response_id = request.previous_response_id;
+        let (extracted_instructions, messages) = extract_instructions(request.messages)?;
         let input = messages
             .into_iter()
             .map(message_to_input_items)
@@ -238,6 +239,20 @@ impl TryFrom<client_gen::GenerationRequest> for CreateResponseRequest {
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
+
+        // On continuation, the system prompt is carried by the stored conversation (and xAI
+        // forbids passing instructions alongside previous_response_id), so drop it. A stored
+        // response is required for the chain, so default to storing unless the caller opted out.
+        let instructions = if previous_response_id.is_some() {
+            None
+        } else {
+            extracted_instructions
+        };
+        let store = if previous_response_id.is_some() {
+            request.store.or(Some(true))
+        } else {
+            request.store
+        };
 
         Ok(CreateResponseRequest {
             model: request.model,
@@ -248,9 +263,9 @@ impl TryFrom<client_gen::GenerationRequest> for CreateResponseRequest {
                 .map(|tools| tools.into_iter().map(wire_tool).collect()),
             tool_choice: request.tool_choice.map(wire_tool_choice),
             parallel_tool_calls: None,
-            previous_response_id: None,
+            previous_response_id,
             conversation: None,
-            store: None,
+            store,
             stream: request.stream,
             stream_options: None,
             temperature: request.temperature,
@@ -260,7 +275,10 @@ impl TryFrom<client_gen::GenerationRequest> for CreateResponseRequest {
             max_tool_calls: None,
             text: request.response_format.as_ref().map(wire_text_config),
             reasoning: request.reasoning_effort.as_ref().map(wire_reasoning),
-            include: None,
+            include: request
+                .reasoning_effort
+                .as_ref()
+                .map(|_| vec![ResponseIncludable::ReasoningEncryptedContent]),
             truncation: None,
             metadata: None,
             user: None,
@@ -426,6 +444,7 @@ pub(crate) fn event_to_generation_events(
         StreamEvent::ResponseCompleted { response, .. } => {
             let mut events = vec![client_gen::GenerationEvent::End {
                 finish_reason: finish_reason(&response),
+                response_id: Some(response.id),
             }];
             if let Some(usage) = response.usage {
                 events.push(client_gen::GenerationEvent::Usage {
@@ -437,11 +456,13 @@ pub(crate) fn event_to_generation_events(
         StreamEvent::ResponseIncomplete { response, .. } => {
             vec![client_gen::GenerationEvent::End {
                 finish_reason: finish_reason(&response),
+                response_id: Some(response.id),
             }]
         }
         StreamEvent::ResponseFailed { response, .. } => {
             vec![client_gen::GenerationEvent::End {
                 finish_reason: finish_reason(&response),
+                response_id: Some(response.id),
             }]
         }
         _ => Vec::new(),

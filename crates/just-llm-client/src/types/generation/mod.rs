@@ -132,7 +132,9 @@ mod tests {
             kind: ResponseFormatType::Text,
         })
         .with_system_prompt("You are a concise assistant.")
-        .with_reasoning_effort(ReasoningEffort::High);
+        .with_reasoning_effort(ReasoningEffort::High)
+        .with_previous_response_id("resp_1")
+        .with_store(true);
 
         assert_eq!(request.messages[0].role(), "system");
         assert_eq!(
@@ -147,6 +149,8 @@ mod tests {
             Some(ToolChoice::Mode(ToolChoiceMode::Auto))
         );
         assert_eq!(request.reasoning_effort, Some(ReasoningEffort::High));
+        assert_eq!(request.previous_response_id, Some("resp_1".to_owned()));
+        assert_eq!(request.store, Some(true));
     }
 
     #[test]
@@ -242,6 +246,7 @@ mod tests {
             },
             GenerationEvent::End {
                 finish_reason: Some(FinishReason::Refusal),
+                response_id: Some("resp_1".to_owned()),
             },
         ];
 

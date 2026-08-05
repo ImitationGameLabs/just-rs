@@ -7,7 +7,7 @@ Just a lightweight, composable, and minimal LLM client — not an agent framewor
 ```toml
 # Cargo.toml
 [dependencies]
-just-llm-client = "0.2"
+just-llm-client = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -40,6 +40,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## Stateful conversations
+
+[`Conversation`] continues multi-turn conversations on Responses-family backends (OpenAI, xAI) by
+sending only the new messages plus `previous_response_id`, instead of re-transmitting the stored
+prefix on every turn. The caller owns the message list and passes the full logical context each
+turn; the `Conversation` decides the wire payload:
+
+```rust,no_run
+use just_llm_client::{
+    GenerationClient, GenerationClientOptions, LlmBackend,
+    provider::OpenAiResponsesBackend,
+    types::generation::Message,
+};
+
+let backend = OpenAiResponsesBackend::new(
+    reqwest::Client::builder().use_rustls_tls(),
+    "your-api-key",
+    None,
+)?;
+let client = GenerationClient::new(
+    backend,
+    GenerationClientOptions::new("gpt-5.6").with_system_prompt("You are concise."),
+);
+let mut conv = client.conversation();
+
+let first = conv.generate(client.create_request(vec![Message::user("Hi")])).await?;
+let mirror = conv.last_message().expect("first turn produced a message");
+let second = conv.generate(client.create_request(vec![
+    Message::user("Hi"),
+    mirror,
+    Message::user("And now?"),
+])).await?;
+```
+
+On stateless backends (chat completions, Anthropic) the same code degrades to a full-resend replay,
+so one code path works across all families. Streaming turns assemble the assistant message from the
+events via [`Conversation::last_message`] and adopt it as the next anchor on completion. See
+`examples/conversation.rs` for a runnable example.
 
 ## Feature flags
 

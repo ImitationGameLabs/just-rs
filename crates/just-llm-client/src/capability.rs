@@ -99,4 +99,16 @@ pub trait CapabilityNegotiation: Identifiable {
             Capability::Balance,
         ))
     }
+
+    /// Whether the backend can continue a conversation server-side (Responses-style
+    /// `previous_response_id` chaining).
+    ///
+    /// Unlike [`model_catalog`](Self::model_catalog)/[`balance`](Self::balance) this is a plain
+    /// behavioral flag rather than a capability handle: stateful conversation reuses the
+    /// [`LlmBackend`](crate::LlmBackend) generation surface, so there is no separate trait to
+    /// return. Callers observe the effective mode through
+    /// [`crate::Conversation::is_stateful`] instead of negotiating here.
+    fn supports_stateful_conversation(&self) -> bool {
+        false
+    }
 }

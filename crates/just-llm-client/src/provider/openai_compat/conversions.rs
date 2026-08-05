@@ -112,6 +112,11 @@ impl TryFrom<client_gen::GenerationRequest> for provider_chat::ChatCompletionReq
                 "OpenAI-compatible providers do not support top_k",
             ));
         }
+        if request.previous_response_id.is_some() || request.store.is_some() {
+            return Err(BackendError::invalid_request(
+                "OpenAI-compatible providers do not support stateful conversation (previous_response_id/store)",
+            ));
+        }
         let messages = request
             .messages
             .into_iter()
@@ -356,6 +361,7 @@ pub fn chunk_to_events(
         if let Some(finish_reason) = choice.finish_reason {
             events.push(client_gen::GenerationEvent::End {
                 finish_reason: Some(finish_reason.into()),
+                response_id: None,
             });
         }
     }

@@ -31,18 +31,32 @@ pub struct ToolCallDelta {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GenerationEvent {
-    Text { delta: String },
-    Reasoning { delta: String },
-    ToolCall { delta: ToolCallDelta },
-    Usage { usage: Usage },
-    End { finish_reason: Option<FinishReason> },
+    Text {
+        delta: String,
+    },
+    Reasoning {
+        delta: String,
+    },
+    ToolCall {
+        delta: ToolCallDelta,
+    },
+    Usage {
+        usage: Usage,
+    },
+    End {
+        finish_reason: Option<FinishReason>,
+        /// Id of the completed response, when the protocol exposes one (used by stateful
+        /// continuation on Responses-family backends). `None` on stateless backends.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        response_id: Option<String>,
+    },
 }
 
 impl GenerationEvent {
     /// Returns the finish reason for an [`End`](Self::End) event.
     pub fn finish_reason(&self) -> Option<&FinishReason> {
         match self {
-            Self::End { finish_reason } => finish_reason.as_ref(),
+            Self::End { finish_reason, .. } => finish_reason.as_ref(),
             _ => None,
         }
     }

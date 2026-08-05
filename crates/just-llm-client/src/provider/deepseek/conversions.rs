@@ -103,6 +103,11 @@ impl TryFrom<client_gen::GenerationRequest> for provider_chat::ChatCompletionReq
                 "DeepSeek does not support top_k",
             ));
         }
+        if request.previous_response_id.is_some() || request.store.is_some() {
+            return Err(BackendError::invalid_request(
+                "DeepSeek does not support stateful conversation (previous_response_id/store)",
+            ));
+        }
         if request.frequency_penalty.is_some() || request.presence_penalty.is_some() {
             return Err(BackendError::invalid_request(
                 "DeepSeek does not support frequency_penalty or presence_penalty",
@@ -352,6 +357,7 @@ pub fn chunk_to_events(
         if let Some(finish_reason) = choice.finish_reason {
             events.push(client_gen::GenerationEvent::End {
                 finish_reason: Some(finish_reason.into()),
+                response_id: None,
             });
         }
     }

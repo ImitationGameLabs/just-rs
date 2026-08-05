@@ -116,3 +116,28 @@ The shared `LlmBackend` surface keeps always-on operations such as generation
 directly callable, and routes optional operations through `CapabilityNegotiation`. A successful
 negotiation returns a handle like `&dyn ModelCatalog`; unsupported
 backends fail at negotiation time instead of inside the capability method.
+
+## Stateful conversations
+
+`Conversation` (via `GenerationClient::conversation`) continues multi-turn conversations on
+Responses-family backends (OpenAI, xAI) by sending only the new messages plus
+`previous_response_id`, instead of re-transmitting the stored prefix each turn. The caller owns the
+message list and passes the full logical context every turn; the `Conversation` decides the wire
+payload:
+
+- **First turn** — full request, stored server-side so the chain can continue.
+- **Pure append** — the caller's list is `last_input ++ [last_assistant] ++ delta` (mirroring the
+  previous assistant turn via `Conversation::last_message`); only `delta` is sent, plus
+  `previous_response_id`.
+- **Anything else** — trimming, rewriting, a changed generation setting (model, tools, sampling,
+  reasoning, response format), or an unknown anchor after an abandoned stream; the full request is
+  sent and re-anchors the chain.
+
+On stateless backends (chat completions, Anthropic) the same code degrades to a full-resend replay,
+so one code path works across all families. Stateful chaining requires the `responses` feature;
+`Conversation::is_stateful()` reports whether the effective mode is stateful. Streaming turns are
+covered too: `Conversation::stream_generate` returns a `ConversationStream` that assembles the
+assistant message from the events and adopts it as the anchor once the stream reaches its `End`.
+
+The two request fields `previous_response_id`/`store` are Conversation-owned; callers do not set
+them directly, and chat/anthropic backends reject them explicitly.

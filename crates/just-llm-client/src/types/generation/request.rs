@@ -10,10 +10,12 @@ use super::{
 
 /// Normalized generation request understood by LLM client backends.
 ///
-/// The field set is the protocol-neutral common core: shared across chat completions, the
-/// Responses API, and Anthropic Messages. Provider-specific parameters (e.g. Responses `store` or
-/// Anthropic `thinking`) are intentionally absent; callers needing them use the provider crate
-/// directly.
+/// The field set is the union of the built-in backends' surfaces, with per-backend rejection: a
+/// field a backend cannot express surfaces as an explicit invalid-request error rather than being
+/// silently dropped. The stateful fields [`previous_response_id`](Self::previous_response_id) and
+/// [`store`](Self::store) are honored by Responses-family backends (OpenAI, xAI); chat-completions
+/// and Anthropic backends reject them. Deeper provider-specific parameters (e.g. Anthropic
+/// `thinking`) remain intentionally absent; callers needing them use the provider crate directly.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GenerationRequest {
     pub model: String,
@@ -32,6 +34,18 @@ pub struct GenerationRequest {
     pub logprobs: Option<bool>,
     pub top_logprobs: Option<u8>,
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Continue from a previous Responses-family response instead of resending full history.
+    ///
+    /// Honored only by Responses-family backends (OpenAI, xAI); others reject it. When set, the
+    /// request carries only the new input items plus this id, and the response is stored so the
+    /// chain can continue.
+    pub previous_response_id: Option<String>,
+    /// Whether the provider should retain this turn server-side for later continuation.
+    ///
+    /// Honored only by Responses-family backends (OpenAI, xAI); others reject it. Chaining via
+    /// [`previous_response_id`](Self::previous_response_id) requires the referenced response to be
+    /// stored.
+    pub store: Option<bool>,
 }
 
 impl GenerationRequest {
@@ -54,6 +68,8 @@ impl GenerationRequest {
             logprobs: None,
             top_logprobs: None,
             reasoning_effort: None,
+            previous_response_id: None,
+            store: None,
         }
     }
 
@@ -132,6 +148,18 @@ impl GenerationRequest {
     /// Sets the requested reasoning effort.
     pub fn with_reasoning_effort(mut self, reasoning_effort: ReasoningEffort) -> Self {
         self.reasoning_effort = Some(reasoning_effort);
+        self
+    }
+
+    /// Continues from the given previous response instead of resending full history.
+    pub fn with_previous_response_id(mut self, id: impl Into<String>) -> Self {
+        self.previous_response_id = Some(id.into());
+        self
+    }
+
+    /// Sets whether the provider should retain this turn server-side for later continuation.
+    pub fn with_store(mut self, store: bool) -> Self {
+        self.store = Some(store);
         self
     }
 
