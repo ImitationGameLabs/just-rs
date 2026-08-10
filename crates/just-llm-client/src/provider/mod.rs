@@ -213,6 +213,10 @@ pub trait LlmBackend: Identifiable + CapabilityNegotiation + Send + Sync {
     /// [`BackendFactory`](crate::BackendFactory); callable on concrete backend types (the trait
     /// must be in scope for the `Type::new(...)` call). Returns the shared trait object rather than
     /// a concrete `Self`.
+    ///
+    /// Configure `http` with `connect_timeout` + `read_timeout` rather than a single
+    /// `timeout` so streaming responses are not aborted mid-flight; see
+    /// `docs/usage/timeouts.md`.
     #[allow(clippy::new_ret_no_self)]
     fn new(
         http: reqwest::ClientBuilder,

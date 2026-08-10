@@ -7,6 +7,8 @@
 //! validates status for JSON bodies; callers consuming a response any other way (e.g. an SSE
 //! stream) must call [`ensure_success`] explicitly first.
 
+use std::time::Duration;
+
 use reqwest::{
     Response,
     header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue},
@@ -25,6 +27,20 @@ use crate::error::{ProviderError, TransportError};
 /// This caps non-streaming reads only; the SSE streaming path is intentionally uncapped today
 /// (see the `sse` module's "Known limitation" note).
 pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024; // 8 MiB
+
+/// Default connect timeout for provider HTTP clients (DNS + TCP + TLS handshake).
+///
+/// Strict enough to fail fast on unreachable endpoints. See `docs/usage/timeouts.md`
+/// for why timeouts are split into connect/read phases.
+pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Default read timeout for provider HTTP clients — an idle timeout that resets on
+/// every successful read of the response body.
+///
+/// Tolerates reasoning-model thinking pauses while still catching dead connections.
+/// Split from [`DEFAULT_CONNECT_TIMEOUT`] so long SSE streams are not aborted
+/// mid-flight (see `docs/usage/timeouts.md`).
+pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Applies Bearer auth and JSON accept headers to a caller-provided builder, then builds.
 ///

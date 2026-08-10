@@ -35,7 +35,8 @@ pub fn client_from_env(
     };
 
     let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .read_timeout(std::time::Duration::from_secs(120))
         .use_rustls_tls();
     let backend = BackendFactory::new().create(&family, http, &api_key, base_url.as_deref())?;
     Ok(GenerationClient::new(

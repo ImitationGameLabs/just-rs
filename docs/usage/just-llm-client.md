@@ -73,7 +73,10 @@ use just_llm_client::{
 };
 
 let backend = OpenAiCompatBackend::new(
-    reqwest::Client::builder().use_rustls_tls(),
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .read_timeout(std::time::Duration::from_secs(120))
+        .use_rustls_tls(),
     "your-api-key",
     Some("https://your-compatible-endpoint/v1"),
 )?;
@@ -138,6 +141,8 @@ so one code path works across all families. Stateful chaining requires the `resp
 `Conversation::is_stateful()` reports whether the effective mode is stateful. Streaming turns are
 covered too: `Conversation::stream_generate` returns a `ConversationStream` that assembles the
 assistant message from the events and adopts it as the anchor once the stream reaches its `End`.
+Configure the HTTP client with `connect_timeout` + `read_timeout` rather than a single `timeout`
+so long streams are not aborted mid-flight; see [timeouts](timeouts.md).
 
 The two request fields `previous_response_id`/`store` are Conversation-owned; callers do not set
 them directly, and chat/anthropic backends reject them explicitly.

@@ -1,7 +1,5 @@
 //! Builder for [`AnthropicClient`].
 
-use std::time::Duration;
-
 use just_common::error::TransportError;
 use just_common::transport::http;
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -10,7 +8,6 @@ use crate::{AnthropicClient, Error};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 const DEFAULT_API_VERSION: &str = "2023-06-01";
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Builder for [`AnthropicClient`].
 pub struct AnthropicClientBuilder {
@@ -51,9 +48,10 @@ impl AnthropicClientBuilder {
 
     /// Provides a custom `reqwest::ClientBuilder`.
     ///
-    /// Defaults to `reqwest::Client::builder().timeout(60s).use_rustls_tls()`.
-    /// The library injects the `x-api-key`, `anthropic-version`, and JSON `Accept`
-    /// headers before building.
+    /// Defaults to streaming-safe [`http::DEFAULT_CONNECT_TIMEOUT`] +
+    /// [`http::DEFAULT_READ_TIMEOUT`] with `use_rustls_tls()`. The library injects
+    /// the `x-api-key`, `anthropic-version`, and JSON `Accept` headers before
+    /// building.
     pub fn http_client(mut self, builder: reqwest::ClientBuilder) -> Self {
         self.http_builder = Some(builder);
         self
@@ -85,7 +83,8 @@ impl AnthropicClientBuilder {
 
         let builder = self.http_builder.unwrap_or_else(|| {
             reqwest::Client::builder()
-                .timeout(DEFAULT_TIMEOUT)
+                .connect_timeout(http::DEFAULT_CONNECT_TIMEOUT)
+                .read_timeout(http::DEFAULT_READ_TIMEOUT)
                 .use_rustls_tls()
         });
 

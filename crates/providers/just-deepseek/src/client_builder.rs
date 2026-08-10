@@ -1,14 +1,11 @@
 //! Builder for [`DeepSeekClient`].
 
-use std::time::Duration;
-
 use just_common::error::TransportError;
 use just_common::transport::http;
 
 use crate::{DeepSeekClient, Error};
 
 const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Builder for [`DeepSeekClient`].
 pub struct DeepSeekClientBuilder {
@@ -41,8 +38,9 @@ impl DeepSeekClientBuilder {
 
     /// Provides a custom `reqwest::ClientBuilder`.
     ///
-    /// Defaults to `reqwest::Client::builder().timeout(60s).use_rustls_tls()`.
-    /// The library injects Bearer auth headers before building.
+    /// Defaults to streaming-safe [`http::DEFAULT_CONNECT_TIMEOUT`] +
+    /// [`http::DEFAULT_READ_TIMEOUT`] with `use_rustls_tls()`. The library injects
+    /// Bearer auth headers before building.
     pub fn http_client(mut self, builder: reqwest::ClientBuilder) -> Self {
         self.http_builder = Some(builder);
         self
@@ -70,7 +68,8 @@ impl DeepSeekClientBuilder {
 
         let builder = self.http_builder.unwrap_or_else(|| {
             reqwest::Client::builder()
-                .timeout(DEFAULT_TIMEOUT)
+                .connect_timeout(http::DEFAULT_CONNECT_TIMEOUT)
+                .read_timeout(http::DEFAULT_READ_TIMEOUT)
                 .use_rustls_tls()
         });
 

@@ -17,7 +17,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let backend = OpenAiCompatBackend::new(
         reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .read_timeout(std::time::Duration::from_secs(120))
             .use_rustls_tls(),
         &api_key,
         Some(base_url.as_str()),
