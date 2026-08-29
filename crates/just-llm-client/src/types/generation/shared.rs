@@ -92,9 +92,10 @@ pub enum ToolType {
 
 /// Requested reasoning effort.
 ///
-/// A union of the levels the built-in providers expose (Responses and Anthropic use
-/// low/medium/high; DeepSeek uses high/max). A backend that cannot express a requested level
-/// reports an invalid request rather than silently approximating it.
+/// A union of the levels the built-in providers accept: Responses and Anthropic (via
+/// `output_config.effort`) take low/medium/high/xhigh/max; DeepSeek v4 accepts all five on
+/// `reasoning_effort`, officially downgrading medium/xhigh to high (its thinking defaults on at
+/// high). The requested level is forwarded as-is; providers decide how to honor it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 #[serde(rename_all = "lowercase")]
@@ -102,6 +103,7 @@ pub enum ReasoningEffort {
     Low,
     Medium,
     High,
+    Xhigh,
     Max,
 }
 

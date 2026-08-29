@@ -4,7 +4,7 @@
 //! `system` parameter, tool results are `tool_result` blocks embedded in `user` messages, and
 //! extended thinking round-trips through `thinking`/`redacted_thinking` blocks carrying a
 //! `signature`. Request-side conversions are fallible: semantic fields Anthropic cannot express
-//! (penalties, logprobs, response format, reasoning effort) surface as an explicit
+//! (penalties, logprobs, response format) surface as an explicit
 //! invalid-request error.
 //!
 use crate::{BackendError, types::generation as client_gen};
@@ -13,6 +13,7 @@ use just_anthropic::types::{
         ContentBlock, ContentBlockParam, MessageContent as WireContent, MessageParam, MessageRole,
         TextBlockParam,
     },
+    output::{OutputConfig, OutputEffort},
     request::{CreateMessageRequest, SystemParam},
     tool::{Tool as WireTool, ToolChoice as WireToolChoice},
 };
@@ -204,6 +205,16 @@ fn wire_tool_choice(choice: client_gen::ToolChoice) -> WireToolChoice {
     }
 }
 
+fn wire_effort(effort: client_gen::ReasoningEffort) -> OutputEffort {
+    match effort {
+        client_gen::ReasoningEffort::Low => OutputEffort::Low,
+        client_gen::ReasoningEffort::Medium => OutputEffort::Medium,
+        client_gen::ReasoningEffort::High => OutputEffort::High,
+        client_gen::ReasoningEffort::Xhigh => OutputEffort::Xhigh,
+        client_gen::ReasoningEffort::Max => OutputEffort::Max,
+    }
+}
+
 pub(crate) fn wire_tool(tool: client_gen::ToolDefinition) -> WireTool {
     WireTool::new(
         tool.function.name,
@@ -229,11 +240,6 @@ impl TryFrom<client_gen::GenerationRequest> for CreateMessageRequest {
         if request.logprobs.is_some() || request.top_logprobs.is_some() {
             return Err(BackendError::invalid_request(
                 "Anthropic does not support logprobs",
-            ));
-        }
-        if request.reasoning_effort.is_some() {
-            return Err(BackendError::invalid_request(
-                "Anthropic does not support reasoning_effort; use its thinking configuration via the provider crate directly",
             ));
         }
         if request
@@ -278,7 +284,10 @@ impl TryFrom<client_gen::GenerationRequest> for CreateMessageRequest {
             metadata: None,
             service_tier: None,
             cache_control: None,
-            output_config: None,
+            output_config: request.reasoning_effort.map(|effort| OutputConfig {
+                effort: Some(wire_effort(effort)),
+                format: None,
+            }),
         })
     }
 }

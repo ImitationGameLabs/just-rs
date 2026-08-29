@@ -1066,6 +1066,25 @@ fn responses_prepare_maps_stateful_continuation() {
     assert_eq!(parsed["include"], json!(["reasoning.encrypted_content"]));
 }
 
+#[cfg(feature = "responses")]
+#[test]
+fn responses_prepare_maps_xhigh_effort() {
+    let backend = OpenAiResponsesBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build responses backend");
+
+    let request = GenerationRequest::new("gpt-5.6", vec![Message::user("x")])
+        .with_reasoning_effort(just_llm_client::types::generation::ReasoningEffort::Xhigh);
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    assert_eq!(parsed["reasoning"]["effort"], "xhigh");
+}
+
 #[cfg(feature = "openai-compat")]
 #[test]
 fn openai_compat_prepare_rejects_stateful_fields() {
@@ -1090,6 +1109,25 @@ fn openai_compat_prepare_rejects_stateful_fields() {
     ));
 }
 
+#[cfg(feature = "openai-compat")]
+#[test]
+fn openai_compat_prepare_maps_xhigh_effort() {
+    let backend = OpenAiCompatBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build openai-compat backend");
+
+    let request = GenerationRequest::new("gpt-4.1-mini", vec![Message::user("x")])
+        .with_reasoning_effort(just_llm_client::types::generation::ReasoningEffort::Xhigh);
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    assert_eq!(parsed["reasoning_effort"], "xhigh");
+}
+
 #[cfg(feature = "deepseek")]
 #[test]
 fn deepseek_prepare_rejects_stateful_fields() {
@@ -1106,6 +1144,56 @@ fn deepseek_prepare_rejects_stateful_fields() {
         backend.prepare(request),
         Err(BackendError::InvalidRequest(_))
     ));
+}
+
+#[cfg(feature = "deepseek")]
+#[test]
+fn deepseek_prepare_maps_all_effort_levels() {
+    let backend = DeepSeekBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build deepseek backend");
+
+    let levels = [
+        (
+            just_llm_client::types::generation::ReasoningEffort::Low,
+            "low",
+        ),
+        (
+            just_llm_client::types::generation::ReasoningEffort::Medium,
+            "medium",
+        ),
+        (
+            just_llm_client::types::generation::ReasoningEffort::High,
+            "high",
+        ),
+        (
+            just_llm_client::types::generation::ReasoningEffort::Xhigh,
+            "xhigh",
+        ),
+        (
+            just_llm_client::types::generation::ReasoningEffort::Max,
+            "max",
+        ),
+    ];
+    for (effort, wire) in levels {
+        let request = GenerationRequest::new("deepseek-v4-pro", vec![Message::user("x")])
+            .with_reasoning_effort(effort);
+        let prepared = backend.prepare(request).unwrap();
+        let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+        assert_eq!(parsed["reasoning_effort"], wire);
+    }
+
+    // No effort preference means the field is omitted entirely.
+    let request = GenerationRequest::new("deepseek-v4-pro", vec![Message::user("x")]);
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+    assert!(parsed.get("reasoning_effort").is_none());
 }
 
 #[cfg(feature = "anthropic")]
@@ -1125,6 +1213,58 @@ fn anthropic_prepare_rejects_stateful_fields() {
         backend.prepare(request),
         Err(BackendError::InvalidRequest(_))
     ));
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn anthropic_prepare_maps_all_effort_levels() {
+    let backend = AnthropicBackend::new(
+        reqwest::Client::builder().use_rustls_tls(),
+        "test-key",
+        Some("http://127.0.0.1:0"),
+    )
+    .expect("failed to build anthropic backend");
+
+    let levels = [
+        (
+            just_llm_client::types::generation::ReasoningEffort::Low,
+            "low",
+        ),
+        (
+            just_llm_client::types::generation::ReasoningEffort::Medium,
+            "medium",
+        ),
+        (
+            just_llm_client::types::generation::ReasoningEffort::High,
+            "high",
+        ),
+        (
+            just_llm_client::types::generation::ReasoningEffort::Xhigh,
+            "xhigh",
+        ),
+        (
+            just_llm_client::types::generation::ReasoningEffort::Max,
+            "max",
+        ),
+    ];
+    for (effort, wire) in levels {
+        let request = GenerationRequest::new("claude-opus-5", vec![Message::user("x")])
+            .with_max_tokens(256)
+            .with_reasoning_effort(effort);
+        let prepared = backend.prepare(request).unwrap();
+        let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+        assert_eq!(parsed["output_config"]["effort"], wire);
+    }
+
+    // No effort preference means no output_config is emitted.
+    let request =
+        GenerationRequest::new("claude-opus-5", vec![Message::user("x")]).with_max_tokens(256);
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+    assert!(parsed.get("output_config").is_none());
 }
 
 #[cfg(feature = "responses")]

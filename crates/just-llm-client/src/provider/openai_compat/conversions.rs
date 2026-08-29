@@ -28,6 +28,7 @@ fn reasoning_effort_string(effort: &client_gen::ReasoningEffort) -> &'static str
         client_gen::ReasoningEffort::Low => "low",
         client_gen::ReasoningEffort::Medium => "medium",
         client_gen::ReasoningEffort::High => "high",
+        client_gen::ReasoningEffort::Xhigh => "xhigh",
         client_gen::ReasoningEffort::Max => "max",
     }
 }

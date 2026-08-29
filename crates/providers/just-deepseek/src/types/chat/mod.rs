@@ -27,8 +27,8 @@ pub use shared::{
 #[cfg(test)]
 mod tests {
     use super::{
-        ChatCompletionRequest, ChatCompletionToolCall, ChatMessage, FunctionCall, StopSequence,
-        ToolChoice, ToolChoiceMode, ToolType,
+        ChatCompletionRequest, ChatCompletionToolCall, ChatMessage, FunctionCall, ReasoningEffort,
+        StopSequence, ToolChoice, ToolChoiceMode, ToolType,
     };
 
     #[test]
@@ -60,6 +60,21 @@ mod tests {
 
         assert_eq!(json["stop"][0], "END");
         assert_eq!(json["tool_choice"], "auto");
+    }
+
+    #[test]
+    fn serializes_reasoning_effort_levels() {
+        assert_eq!(serde_json::to_value(ReasoningEffort::Low).unwrap(), "low");
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::Medium).unwrap(),
+            "medium"
+        );
+        assert_eq!(serde_json::to_value(ReasoningEffort::High).unwrap(), "high");
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::Xhigh).unwrap(),
+            "xhigh"
+        );
+        assert_eq!(serde_json::to_value(ReasoningEffort::Max).unwrap(), "max");
     }
 
     #[test]

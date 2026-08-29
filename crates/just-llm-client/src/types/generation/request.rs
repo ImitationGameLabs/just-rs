@@ -12,10 +12,13 @@ use super::{
 ///
 /// The field set is the union of the built-in backends' surfaces, with per-backend rejection: a
 /// field a backend cannot express surfaces as an explicit invalid-request error rather than being
-/// silently dropped. The stateful fields [`previous_response_id`](Self::previous_response_id) and
-/// [`store`](Self::store) are honored by Responses-family backends (OpenAI, xAI); chat-completions
-/// and Anthropic backends reject them. Deeper provider-specific parameters (e.g. Anthropic
-/// `thinking`) remain intentionally absent; callers needing them use the provider crate directly.
+/// silently dropped. Reasoning effort is the exception: every backend maps it (Anthropic via
+/// `output_config.effort`, DeepSeek forwarding all five levels and officially downgrading
+/// medium/xhigh to high). The stateful fields
+/// [`previous_response_id`](Self::previous_response_id) and [`store`](Self::store) are honored by
+/// Responses-family backends (OpenAI, xAI); chat-completions and Anthropic backends reject them.
+/// Deeper provider-specific parameters (e.g. Anthropic `thinking`) remain intentionally absent;
+/// callers needing them use the provider crate directly.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct GenerationRequest {
     pub model: String,

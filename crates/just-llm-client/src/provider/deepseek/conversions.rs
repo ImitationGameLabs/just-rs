@@ -3,9 +3,8 @@
 //! These mappings keep the provider wire types independent from the `just-llm-client`
 //! normalized layer, so future provider-specific evolution does not need to route through a
 //! shared protocol abstraction. Request-side conversions are fallible: the semantic types carry
-//! fields DeepSeek cannot express (multimodal content parts, `top_k`, penalties, unsupported
-//! reasoning effort), which surface as an explicit invalid-request error rather than being
-//! silently dropped.
+//! fields DeepSeek cannot express (multimodal content parts, `top_k`, penalties), which surface
+//! as an explicit invalid-request error rather than being silently dropped.
 //!
 use crate::{BackendError, types::generation as client_gen};
 use just_deepseek::types::chat as provider_chat;
@@ -115,13 +114,13 @@ impl TryFrom<client_gen::GenerationRequest> for provider_chat::ChatCompletionReq
         }
         let reasoning_effort = match request.reasoning_effort {
             None => None,
-            Some(client_gen::ReasoningEffort::High) => Some(provider_chat::ReasoningEffort::High),
-            Some(client_gen::ReasoningEffort::Max) => Some(provider_chat::ReasoningEffort::Max),
-            Some(effort) => {
-                return Err(BackendError::invalid_request(format!(
-                    "DeepSeek does not support reasoning_effort {effort:?}"
-                )));
+            Some(client_gen::ReasoningEffort::Low) => Some(provider_chat::ReasoningEffort::Low),
+            Some(client_gen::ReasoningEffort::Medium) => {
+                Some(provider_chat::ReasoningEffort::Medium)
             }
+            Some(client_gen::ReasoningEffort::High) => Some(provider_chat::ReasoningEffort::High),
+            Some(client_gen::ReasoningEffort::Xhigh) => Some(provider_chat::ReasoningEffort::Xhigh),
+            Some(client_gen::ReasoningEffort::Max) => Some(provider_chat::ReasoningEffort::Max),
         };
         let messages = request
             .messages

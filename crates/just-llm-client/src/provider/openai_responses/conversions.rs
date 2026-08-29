@@ -200,6 +200,7 @@ fn wire_reasoning(effort: &client_gen::ReasoningEffort) -> ReasoningConfig {
         client_gen::ReasoningEffort::Low => WireEffort::Low,
         client_gen::ReasoningEffort::Medium => WireEffort::Medium,
         client_gen::ReasoningEffort::High => WireEffort::High,
+        client_gen::ReasoningEffort::Xhigh => WireEffort::Xhigh,
         client_gen::ReasoningEffort::Max => WireEffort::Max,
     };
     ReasoningConfig {

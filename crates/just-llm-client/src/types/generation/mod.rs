@@ -52,6 +52,18 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_effort_serde_round_trips_xhigh() {
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::Xhigh).unwrap(),
+            json!("xhigh")
+        );
+        assert_eq!(
+            serde_json::from_value::<ReasoningEffort>(json!("xhigh")).unwrap(),
+            ReasoningEffort::Xhigh
+        );
+    }
+
+    #[test]
     fn message_accessors_cover_all_variants() {
         let system = Message::system("Be brief.");
         let user = Message::user("hello");
