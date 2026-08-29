@@ -20,21 +20,16 @@ pub struct ReasoningConfig {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
-    #[serde(rename = "none")]
     None,
-    #[serde(rename = "minimal")]
     Minimal,
-    #[serde(rename = "low")]
     Low,
-    #[serde(rename = "medium")]
     Medium,
-    #[serde(rename = "high")]
     High,
-    #[serde(rename = "xhigh")]
     Xhigh,
-    #[serde(rename = "max")]
     Max,
+    #[serde(rename = "Unknown")]
     #[serde(other)]
     Unknown,
 }

@@ -418,6 +418,36 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_effort_wire_forms_are_pinned() {
+        use super::shared::ReasoningEffort;
+
+        let forms = [
+            (ReasoningEffort::None, "none"),
+            (ReasoningEffort::Minimal, "minimal"),
+            (ReasoningEffort::Low, "low"),
+            (ReasoningEffort::Medium, "medium"),
+            (ReasoningEffort::High, "high"),
+            (ReasoningEffort::Xhigh, "xhigh"),
+            (ReasoningEffort::Max, "max"),
+            // The fallback pins its variant-name form: a deliberate contract point.
+            (ReasoningEffort::Unknown, "Unknown"),
+        ];
+        for (effort, wire) in forms {
+            assert_eq!(serde_json::to_value(effort).unwrap(), json!(wire));
+            assert_eq!(
+                serde_json::from_value::<ReasoningEffort>(json!(wire)).unwrap(),
+                effort
+            );
+        }
+
+        // Unrecognized values fall back to Unknown instead of failing the parse.
+        assert_eq!(
+            serde_json::from_value::<ReasoningEffort>(json!("ultra")).unwrap(),
+            ReasoningEffort::Unknown
+        );
+    }
+
+    #[test]
     fn message_content_supports_string_or_parts() {
         let text = MessageContent::Text("plain".to_owned());
         assert_eq!(serde_json::to_value(&text).unwrap(), json!("plain"));
