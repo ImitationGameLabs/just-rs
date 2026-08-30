@@ -86,4 +86,34 @@ mod tests {
         assert_eq!(json[2]["role"], "tool");
         assert_eq!(json[2]["tool_call_id"], "call_1");
     }
+
+    #[test]
+    fn deserializes_unknown_enum_values() {
+        use super::{AssistantRole, ChatCompletion, FinishReason};
+
+        let completion: ChatCompletion = serde_json::from_value(serde_json::json!({
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gpt-4.1-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "chief", "content": "hello" },
+                "finish_reason": "teleported"
+            }]
+        }))
+        .unwrap();
+
+        let choice = &completion.choices[0];
+        assert_eq!(choice.message.role, AssistantRole::Unknown);
+        assert_eq!(choice.finish_reason, Some(FinishReason::Unknown));
+
+        let call: ChatCompletionToolCall = serde_json::from_value(serde_json::json!({
+            "id": "call_1",
+            "type": "mcp",
+            "function": { "name": "lookup", "arguments": "{}" }
+        }))
+        .unwrap();
+        assert_eq!(call.kind, ToolType::Unknown);
+    }
 }

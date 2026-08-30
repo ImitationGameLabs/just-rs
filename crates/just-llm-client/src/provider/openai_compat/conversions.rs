@@ -265,21 +265,30 @@ impl From<provider_chat::ChatCompletion> for client_gen::GenerationResponse {
 
 impl From<provider_chat::AssistantMessage> for client_gen::AssistantMessage {
     fn from(message: provider_chat::AssistantMessage) -> Self {
-        Self {
-            content: message.content.filter(|content| !content.is_empty()),
-            tool_calls: message
-                .tool_calls
-                .unwrap_or_default()
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            reasoning: message.reasoning_content.map(|text| client_gen::Reasoning {
-                text: Some(text),
-                id: None,
-                encrypted: None,
-                signature: None,
-                redacted: None,
-            }),
+        // An unknown role is a protocol anomaly: its content is not
+        // attributed to the assistant, mirroring the empty-choices fallback.
+        match message.role {
+            provider_chat::AssistantRole::Assistant => Self {
+                content: message.content.filter(|content| !content.is_empty()),
+                tool_calls: message
+                    .tool_calls
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+                reasoning: message.reasoning_content.map(|text| client_gen::Reasoning {
+                    text: Some(text),
+                    id: None,
+                    encrypted: None,
+                    signature: None,
+                    redacted: None,
+                }),
+            },
+            provider_chat::AssistantRole::Unknown => Self {
+                content: None,
+                tool_calls: Vec::new(),
+                reasoning: None,
+            },
         }
     }
 }
@@ -307,6 +316,7 @@ impl From<provider_chat::FinishReason> for client_gen::FinishReason {
             provider_chat::FinishReason::Length => Self::Length,
             provider_chat::FinishReason::ContentFilter => Self::ContentFilter,
             provider_chat::FinishReason::ToolCalls => Self::ToolCalls,
+            provider_chat::FinishReason::Unknown => Self::Stop,
         }
     }
 }
@@ -374,4 +384,50 @@ pub fn chunk_to_events(
     }
 
     events
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_finish_reason_normalizes_to_stop() {
+        let reason: client_gen::FinishReason = provider_chat::FinishReason::Unknown.into();
+        assert_eq!(reason, client_gen::FinishReason::Stop);
+    }
+
+    #[test]
+    fn unknown_role_message_converts_without_attribution() {
+        let message = provider_chat::AssistantMessage {
+            content: Some("leaked".to_owned()),
+            reasoning_content: None,
+            tool_calls: None,
+            refusal: None,
+            role: provider_chat::AssistantRole::Unknown,
+        };
+
+        let converted: client_gen::AssistantMessage = message.into();
+
+        assert_eq!(converted.content, None);
+        assert!(converted.tool_calls.is_empty());
+        assert_eq!(converted.reasoning, None);
+    }
+
+    #[test]
+    fn tool_call_fields_map_regardless_of_tool_type() {
+        let call = provider_chat::ChatCompletionToolCall {
+            id: "call_1".to_owned(),
+            kind: provider_chat::ToolType::Unknown,
+            function: provider_chat::FunctionCall {
+                name: "lookup_weather".to_owned(),
+                arguments: "{}".to_owned(),
+            },
+        };
+
+        let converted: client_gen::ToolCall = call.into();
+
+        assert_eq!(converted.id, "call_1");
+        assert_eq!(converted.name, "lookup_weather");
+        assert_eq!(converted.arguments, "{}");
+    }
 }

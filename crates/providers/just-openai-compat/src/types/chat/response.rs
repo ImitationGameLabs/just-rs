@@ -46,6 +46,8 @@ pub struct AssistantMessage {
 #[serde(rename_all = "lowercase")]
 pub enum AssistantRole {
     Assistant,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

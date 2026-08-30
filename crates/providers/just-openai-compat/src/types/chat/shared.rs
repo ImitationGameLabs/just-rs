@@ -102,6 +102,8 @@ pub enum ToolChoiceMode {
 #[serde(rename_all = "lowercase")]
 pub enum ToolType {
     Function,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -145,6 +147,8 @@ pub enum FinishReason {
     Length,
     ContentFilter,
     ToolCalls,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
