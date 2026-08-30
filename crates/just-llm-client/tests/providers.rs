@@ -1634,7 +1634,7 @@ async fn anthropic_adapter_maps_usage_without_cache_fields() {
 
 #[cfg(feature = "anthropic")]
 #[tokio::test]
-async fn anthropic_stream_drops_cache_fields_from_message_delta_usage() {
+async fn anthropic_stream_surfaces_cache_fields_from_message_delta_usage() {
     let server = MockServer::start().await;
     let body = concat!(
         "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-5\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n",
@@ -1670,14 +1670,14 @@ async fn anthropic_stream_drops_cache_fields_from_message_delta_usage() {
         }
     ));
 
-    // Characterization pin: the streaming path currently discards the cache
-    // fields carried by message_delta usage (they surface as None).
+    // message_delta usage carries the cache fields; the streaming path
+    // surfaces them instead of discarding them.
     let usage = stream.next().await.unwrap().unwrap();
     assert!(matches!(
         usage,
         GenerationEvent::Usage { usage } if usage.prompt_tokens == 10 && usage.completion_tokens == 5
-            && usage.cache_read_tokens.is_none()
-            && usage.cache_write_tokens.is_none()
+            && usage.cache_read_tokens == Some(2048)
+            && usage.cache_write_tokens == Some(512)
     ));
 
     assert!(stream.next().await.is_none());

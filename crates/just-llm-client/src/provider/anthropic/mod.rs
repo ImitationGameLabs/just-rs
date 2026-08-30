@@ -131,12 +131,17 @@ impl LlmBackend for AnthropicBackend {
                     }];
                     if let Some(stream_usage) = usage {
                         let output = stream_usage.output_tokens;
+                        // Inline, not wire_usage_to_client: delta usage is a narrower wire type (no input/total fields).
                         events.push(crate::types::generation::GenerationEvent::Usage {
                             usage: crate::types::generation::Usage {
                                 completion_tokens: output as u32,
                                 prompt_tokens: input as u32,
-                                cache_read_tokens: None,
-                                cache_write_tokens: None,
+                                cache_read_tokens: stream_usage
+                                    .cache_read_input_tokens
+                                    .map(|tokens| tokens as u32),
+                                cache_write_tokens: stream_usage
+                                    .cache_creation_input_tokens
+                                    .map(|tokens| tokens as u32),
                                 total_tokens: (input + output) as u32,
                                 completion_tokens_details: None,
                             },
