@@ -323,12 +323,24 @@ fn wire_usage_to_client(usage: ResponseUsage) -> client_gen::Usage {
     client_gen::Usage {
         completion_tokens: usage.output_tokens as u32,
         prompt_tokens: usage.input_tokens as u32,
-        cache_read_tokens: Some(usage.input_tokens_details.cached_tokens as u32),
-        cache_write_tokens: Some(usage.input_tokens_details.cache_write_tokens as u32),
+        cache_read_tokens: usage
+            .input_tokens_details
+            .as_ref()
+            .and_then(|details| details.cached_tokens)
+            .map(|tokens| tokens as u32),
+        cache_write_tokens: usage
+            .input_tokens_details
+            .as_ref()
+            .and_then(|details| details.cache_write_tokens)
+            .map(|tokens| tokens as u32),
         total_tokens: usage.total_tokens as u32,
-        completion_tokens_details: Some(client_gen::CompletionTokensDetails {
-            reasoning_tokens: Some(usage.output_tokens_details.reasoning_tokens as u32),
-        }),
+        completion_tokens_details: usage
+            .output_tokens_details
+            .as_ref()
+            .and_then(|details| details.reasoning_tokens)
+            .map(|tokens| client_gen::CompletionTokensDetails {
+                reasoning_tokens: Some(tokens as u32),
+            }),
     }
 }
 
@@ -467,5 +479,30 @@ pub(crate) fn event_to_generation_events(
             }]
         }
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absent_usage_details_map_to_none() {
+        let usage = ResponseUsage {
+            input_tokens: 10,
+            input_tokens_details: None,
+            output_tokens: 5,
+            output_tokens_details: None,
+            total_tokens: 15,
+        };
+
+        let client_usage = wire_usage_to_client(usage);
+
+        assert_eq!(client_usage.prompt_tokens, 10);
+        assert_eq!(client_usage.completion_tokens, 5);
+        assert_eq!(client_usage.total_tokens, 15);
+        assert_eq!(client_usage.cache_read_tokens, None);
+        assert_eq!(client_usage.cache_write_tokens, None);
+        assert_eq!(client_usage.completion_tokens_details, None);
     }
 }

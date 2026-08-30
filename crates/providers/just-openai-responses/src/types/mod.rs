@@ -495,4 +495,59 @@ mod tests {
         let json = serde_json::to_value(request).unwrap();
         assert_eq!(json["include"], json!(["web_search_call.results"]));
     }
+
+    #[test]
+    fn tolerates_absent_optional_fields() {
+        let value = json!({
+            "id": "resp_1",
+            "object": "response",
+            "created_at": 1700000000,
+            "status": "completed",
+            "model": "gpt-5.6",
+            "output": [
+                {
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "It is 25 degrees.",
+                            "logprobs": [{ "token": "It", "logprob": -0.5 }]
+                        }
+                    ]
+                }
+            ],
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "total_tokens": 15
+            }
+        });
+
+        let response: Response = serde_json::from_value(value).unwrap();
+
+        let usage = response.usage.as_ref().unwrap();
+        assert_eq!(usage.input_tokens_details, None);
+        assert_eq!(usage.output_tokens_details, None);
+
+        use super::item::OutputItem;
+        use super::message::OutputContentPart;
+        let OutputItem::Message(message) = &response.output[0] else {
+            panic!("expected a message output item");
+        };
+        assert_eq!(message.status, None);
+        let OutputContentPart::OutputText {
+            annotations,
+            logprobs,
+            ..
+        } = &message.content[0]
+        else {
+            panic!("expected an output text content part");
+        };
+        assert_eq!(*annotations, None);
+        let logprobs = logprobs.as_ref().unwrap();
+        assert_eq!(logprobs[0].top_logprobs, None);
+        assert_eq!(logprobs[0].bytes, None);
+    }
 }

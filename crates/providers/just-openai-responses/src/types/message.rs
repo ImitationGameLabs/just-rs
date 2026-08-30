@@ -166,7 +166,8 @@ pub struct OutputMessage {
     pub id: String,
     pub role: OutputRole,
     pub content: Vec<OutputContentPart>,
-    pub status: ItemStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ItemStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<Phase>,
 }
@@ -177,7 +178,8 @@ pub enum OutputContentPart {
     #[serde(rename = "output_text")]
     OutputText {
         text: String,
-        annotations: Vec<Annotation>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        annotations: Option<Vec<Annotation>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         logprobs: Option<Vec<OutputLogprob>>,
     },
@@ -223,7 +225,8 @@ pub struct OutputLogprob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<Vec<u8>>,
     pub logprob: f64,
-    pub top_logprobs: Vec<TopLogprob>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_logprobs: Option<Vec<TopLogprob>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
