@@ -10,8 +10,8 @@
 use crate::{BackendError, types::generation as client_gen};
 use just_anthropic::types::{
     message::{
-        ContentBlock, ContentBlockParam, MessageContent as WireContent, MessageParam, MessageRole,
-        TextBlockParam,
+        ContentBlock, ContentBlockParam, ImageMediaType, ImageSource,
+        MessageContent as WireContent, MessageParam, MessageRole, TextBlockParam,
     },
     output::{OutputConfig, OutputEffort},
     request::{CreateMessageRequest, SystemParam},
@@ -93,11 +93,23 @@ fn content_to_wire(content: &client_gen::MessageContent) -> Result<WireContent, 
                             citations: None,
                         });
                     }
-                    client_gen::ContentPart::Image { image_url } => {
-                        blocks.push(ContentBlockParam::Image {
-                            source: just_anthropic::types::message::ImageSource::Url {
-                                url: image_url.clone(),
+                    client_gen::ContentPart::Image { source, .. } => {
+                        let source = match source {
+                            client_gen::ImageSource::Url { url } => {
+                                ImageSource::Url { url: url.clone() }
+                            }
+                            client_gen::ImageSource::Base64 { data, media_type } => {
+                                ImageSource::Base64 {
+                                    data: data.clone(),
+                                    media_type: media_type_to_wire(media_type),
+                                }
+                            }
+                            client_gen::ImageSource::FileId { file_id } => ImageSource::File {
+                                file_id: file_id.clone(),
                             },
+                        };
+                        blocks.push(ContentBlockParam::Image {
+                            source,
                             cache_control: None,
                         });
                     }
@@ -105,6 +117,18 @@ fn content_to_wire(content: &client_gen::MessageContent) -> Result<WireContent, 
             }
             Ok(WireContent::Blocks(blocks))
         }
+    }
+}
+
+/// Maps a semantic media-type string to the Anthropic wire enum; unknown
+/// values are preserved verbatim for the provider to judge.
+fn media_type_to_wire(media_type: &str) -> ImageMediaType {
+    match media_type {
+        "image/jpeg" => ImageMediaType::Jpeg,
+        "image/png" => ImageMediaType::Png,
+        "image/gif" => ImageMediaType::Gif,
+        "image/webp" => ImageMediaType::Webp,
+        other => ImageMediaType::Unknown(other.to_owned()),
     }
 }
 

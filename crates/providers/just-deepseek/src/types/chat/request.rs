@@ -73,6 +73,31 @@ pub enum ChatMessage {
     Message(TextMessage),
 }
 
+/// Chat message content: a plain string or an array of typed parts.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum MessageContent {
+    Text(String),
+    Parts(Vec<ContentPart>),
+}
+
+/// A single part of an array-form chat message.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentPart {
+    Text { text: String },
+    ImageUrl { image_url: ImageUrlSource },
+}
+
+/// The `image_url` payload of an image part: a URL or data URI, with an optional
+/// provider-specific detail hint passed through verbatim.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ImageUrlSource {
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
 /// Plain role/content message.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -80,7 +105,7 @@ pub struct TextMessage {
     /// Request-side roles remain free-form strings so callers can use DeepSeek-compatible
     /// extensions such as `developer` without waiting for a curated enum surface.
     pub role: String,
-    pub content: String,
+    pub content: MessageContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,7 +143,7 @@ impl ChatMessage {
     pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
         Self::Message(TextMessage {
             role: role.into(),
-            content: content.into(),
+            content: MessageContent::Text(content.into()),
             name: None,
             reasoning_content: None,
         })
@@ -132,7 +157,7 @@ impl ChatMessage {
     ) -> Self {
         Self::Message(TextMessage {
             role: role.into(),
-            content: content.into(),
+            content: MessageContent::Text(content.into()),
             name: Some(name.into()),
             reasoning_content: None,
         })

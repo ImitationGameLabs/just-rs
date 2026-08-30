@@ -56,18 +56,46 @@ pub enum MessageContent {
     Parts(Vec<InputContentPart>),
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImageDetail {
-    #[serde(rename = "low")]
     Low,
-    #[serde(rename = "high")]
     High,
-    #[serde(rename = "auto")]
     Auto,
-    #[serde(rename = "original")]
     Original,
-    #[serde(other)]
-    Unknown,
+    /// Unrecognized detail value, preserved verbatim for lossless round-tripping.
+    Unknown(String),
+}
+
+impl Serialize for ImageDetail {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let value = match self {
+            Self::Low => "low",
+            Self::High => "high",
+            Self::Auto => "auto",
+            Self::Original => "original",
+            Self::Unknown(value) => value.as_str(),
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for ImageDetail {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "low" => Self::Low,
+            "high" => Self::High,
+            "auto" => Self::Auto,
+            "original" => Self::Original,
+            _ => Self::Unknown(value.clone()),
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -253,4 +281,26 @@ pub enum ReasoningText {
     Reasoning { text: String },
     #[serde(other)]
     Unknown,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ImageDetail;
+
+    #[test]
+    fn image_detail_preserves_unknown_values() {
+        assert_eq!(
+            serde_json::to_value(ImageDetail::Unknown("hd".to_owned())).unwrap(),
+            serde_json::json!("hd")
+        );
+        let back: ImageDetail = serde_json::from_value(serde_json::json!("hd")).unwrap();
+        assert_eq!(back, ImageDetail::Unknown("hd".to_owned()));
+
+        assert_eq!(
+            serde_json::to_value(ImageDetail::Low).unwrap(),
+            serde_json::json!("low")
+        );
+        let back: ImageDetail = serde_json::from_value(serde_json::json!("low")).unwrap();
+        assert_eq!(back, ImageDetail::Low);
+    }
 }

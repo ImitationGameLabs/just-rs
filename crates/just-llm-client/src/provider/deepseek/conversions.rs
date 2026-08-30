@@ -3,23 +3,67 @@
 //! These mappings keep the provider wire types independent from the `just-llm-client`
 //! normalized layer, so future provider-specific evolution does not need to route through a
 //! shared protocol abstraction. Request-side conversions are fallible: the semantic types carry
-//! fields DeepSeek cannot express (multimodal content parts, `top_k`, penalties), which surface
-//! as an explicit invalid-request error rather than being silently dropped.
+//! carry fields DeepSeek cannot express (`top_k`, penalties), which surface as an explicit
+//! invalid-request error rather than being silently dropped. Multimodal content parts are
+//! expressible and passed through for the provider to judge.
 //!
 use crate::{BackendError, types::generation as client_gen};
 use just_deepseek::types::chat as provider_chat;
 
-/// Extracts a text payload from semantic content, rejecting multimodal parts.
-fn text_content(content: &client_gen::MessageContent) -> Result<String, BackendError> {
+/// Converts semantic content into chat wire content (string or parts).
+///
+/// Base64 image sources become data URIs; file-id sources have no chat-completions
+/// representation and surface as an explicit error.
+fn content_to_wire(
+    content: &client_gen::MessageContent,
+) -> Result<provider_chat::MessageContent, BackendError> {
     match content {
-        client_gen::MessageContent::Text(text) => Ok(text.clone()),
-        client_gen::MessageContent::Parts(parts) => match parts.as_slice() {
-            [client_gen::ContentPart::Text { text }] => Ok(text.clone()),
-            _ => Err(BackendError::invalid_request(
-                "DeepSeek does not support multimodal message content",
-            )),
-        },
+        client_gen::MessageContent::Text(text) => {
+            Ok(provider_chat::MessageContent::Text(text.clone()))
+        }
+        client_gen::MessageContent::Parts(parts) => {
+            let mut wire_parts = Vec::new();
+            for part in parts {
+                match part {
+                    client_gen::ContentPart::Text { text } => {
+                        wire_parts.push(provider_chat::ContentPart::Text { text: text.clone() });
+                    }
+                    client_gen::ContentPart::Image { source, detail } => {
+                        let url = match source {
+                            client_gen::ImageSource::Url { url } => url.clone(),
+                            client_gen::ImageSource::Base64 { data, media_type } => {
+                                format!("data:{media_type};base64,{data}")
+                            }
+                            client_gen::ImageSource::FileId { .. } => {
+                                return Err(BackendError::invalid_request(
+                                    "file-id image sources have no chat-completions representation",
+                                ));
+                            }
+                        };
+                        wire_parts.push(provider_chat::ContentPart::ImageUrl {
+                            image_url: provider_chat::ImageUrlSource {
+                                url,
+                                detail: detail_to_wire(detail),
+                            },
+                        });
+                    }
+                }
+            }
+            Ok(provider_chat::MessageContent::Parts(wire_parts))
+        }
     }
+}
+
+/// Maps a semantic detail hint to the chat wire's free-string detail field;
+/// unknown values pass through verbatim.
+fn detail_to_wire(detail: &Option<client_gen::ImageDetail>) -> Option<String> {
+    detail.as_ref().map(|detail| match detail {
+        client_gen::ImageDetail::Auto => "auto".to_owned(),
+        client_gen::ImageDetail::Low => "low".to_owned(),
+        client_gen::ImageDetail::High => "high".to_owned(),
+        client_gen::ImageDetail::Original => "original".to_owned(),
+        client_gen::ImageDetail::Unknown(value) => value.clone(),
+    })
 }
 
 impl TryFrom<client_gen::Message> for provider_chat::ChatMessage {
@@ -30,7 +74,7 @@ impl TryFrom<client_gen::Message> for provider_chat::ChatMessage {
             client_gen::Message::System { content } => Ok(provider_chat::ChatMessage::Message(
                 provider_chat::TextMessage {
                     role: "system".to_owned(),
-                    content: text_content(&content)?,
+                    content: content_to_wire(&content)?,
                     name: None,
                     reasoning_content: None,
                 },
@@ -38,7 +82,7 @@ impl TryFrom<client_gen::Message> for provider_chat::ChatMessage {
             client_gen::Message::User { content } => Ok(provider_chat::ChatMessage::Message(
                 provider_chat::TextMessage {
                     role: "user".to_owned(),
-                    content: text_content(&content)?,
+                    content: content_to_wire(&content)?,
                     name: None,
                     reasoning_content: None,
                 },
@@ -49,7 +93,9 @@ impl TryFrom<client_gen::Message> for provider_chat::ChatMessage {
                     Ok(provider_chat::ChatMessage::Message(
                         provider_chat::TextMessage {
                             role: "assistant".to_owned(),
-                            content: message.content.unwrap_or_default(),
+                            content: provider_chat::MessageContent::Text(
+                                message.content.unwrap_or_default(),
+                            ),
                             name: None,
                             reasoning_content,
                         },

@@ -9,8 +9,9 @@ mod response;
 mod shared;
 
 pub use request::{
-    ChatCompletionRequest, ChatMessage, ReasoningEffort, TextMessage, ThinkingConfig, ThinkingMode,
-    ToolCallsMessage, ToolResultMessage,
+    ChatCompletionRequest, ChatMessage, ContentPart, ImageUrlSource, MessageContent,
+    ReasoningEffort, TextMessage, ThinkingConfig, ThinkingMode, ToolCallsMessage,
+    ToolResultMessage,
 };
 pub use response::{
     AssistantMessage, AssistantRole, ChatCompletion, ChatCompletionChoice, ChatCompletionChunk,

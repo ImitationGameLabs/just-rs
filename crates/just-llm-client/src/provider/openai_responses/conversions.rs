@@ -12,8 +12,8 @@ use just_openai_responses::types::{
         FunctionCall as WireFunctionCall, FunctionCallOutput, InputItem, OutputItem, ReasoningItem,
     },
     message::{
-        InputContentPart, InputMessage, MessageContent as WireMessageContent, MessageRole,
-        SummaryText,
+        ImageDetail as WireImageDetail, InputContentPart, InputMessage,
+        MessageContent as WireMessageContent, MessageRole, SummaryText,
     },
     request::{CreateResponseRequest, ResponseInput},
     response::{IncompleteReason, Response, ResponseStatus, ResponseUsage},
@@ -76,11 +76,20 @@ fn message_content_to_wire(
                             prompt_cache_breakpoint: None,
                         });
                     }
-                    client_gen::ContentPart::Image { image_url } => {
+                    client_gen::ContentPart::Image { source, detail } => {
+                        let (image_url, file_id) = match source {
+                            client_gen::ImageSource::Url { url } => (Some(url.clone()), None),
+                            client_gen::ImageSource::Base64 { data, media_type } => {
+                                (Some(format!("data:{media_type};base64,{data}")), None)
+                            }
+                            client_gen::ImageSource::FileId { file_id } => {
+                                (None, Some(file_id.clone()))
+                            }
+                        };
                         wire_parts.push(InputContentPart::InputImage {
-                            detail: None,
-                            image_url: Some(image_url.clone()),
-                            file_id: None,
+                            detail: detail.as_ref().map(image_detail_to_wire),
+                            image_url,
+                            file_id,
                             prompt_cache_breakpoint: None,
                         });
                     }
@@ -88,6 +97,18 @@ fn message_content_to_wire(
             }
             Ok(WireMessageContent::Parts(wire_parts))
         }
+    }
+}
+
+/// Maps a semantic image detail to the Responses wire enum; unknown values
+/// pass through verbatim (the wire variant carries the original string).
+fn image_detail_to_wire(detail: &client_gen::ImageDetail) -> WireImageDetail {
+    match detail {
+        client_gen::ImageDetail::Auto => WireImageDetail::Auto,
+        client_gen::ImageDetail::Low => WireImageDetail::Low,
+        client_gen::ImageDetail::High => WireImageDetail::High,
+        client_gen::ImageDetail::Original => WireImageDetail::Original,
+        client_gen::ImageDetail::Unknown(value) => WireImageDetail::Unknown(value.clone()),
     }
 }
 

@@ -63,6 +63,13 @@ use wiremock::{
     feature = "responses",
     feature = "anthropic"
 ))]
+use just_llm_client::types::generation::{ContentPart, ImageDetail, ImageSource};
+#[cfg(any(
+    feature = "deepseek",
+    feature = "openai-compat",
+    feature = "responses",
+    feature = "anthropic"
+))]
 use std::sync::Arc;
 
 #[cfg(feature = "deepseek")]
@@ -1723,4 +1730,451 @@ async fn anthropic_stream_omits_usage_event_without_stream_usage() {
 
     // No Usage event follows when message_delta carries no usage.
     assert!(stream.next().await.is_none());
+}
+
+// --- Multimodal image input (unified ContentPart::Image) ---
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_prepare_maps_image_sources_and_drops_detail() {
+    let backend = anthropic_backend(&MockServer::start().await);
+    let request = GenerationRequest::new(
+        "claude-opus-5",
+        vec![Message::user_parts(vec![
+            ContentPart::Text {
+                text: "what is this?".to_string(),
+            },
+            ContentPart::Image {
+                source: ImageSource::Url {
+                    url: "https://example.com/cat.png".to_string(),
+                },
+                detail: Some(ImageDetail::High),
+            },
+            ContentPart::Image {
+                source: ImageSource::Base64 {
+                    data: "aGVsbG8=".to_string(),
+                    media_type: "image/png".to_string(),
+                },
+                detail: None,
+            },
+            ContentPart::Image {
+                source: ImageSource::FileId {
+                    file_id: "file_123".to_string(),
+                },
+                detail: Some(ImageDetail::Low),
+            },
+        ])],
+    )
+    .with_max_tokens(256);
+
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    let content = &parsed["messages"][0]["content"];
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["source"]["type"], "url");
+    assert_eq!(content[1]["source"]["url"], "https://example.com/cat.png");
+    assert!(content[1].get("detail").is_none());
+    assert_eq!(content[2]["source"]["type"], "base64");
+    assert_eq!(content[2]["source"]["data"], "aGVsbG8=");
+    assert_eq!(content[2]["source"]["media_type"], "image/png");
+    assert!(content[2].get("detail").is_none());
+    assert_eq!(content[3]["source"]["type"], "file");
+    assert_eq!(content[3]["source"]["file_id"], "file_123");
+    assert!(content[3].get("detail").is_none());
+}
+
+#[cfg(feature = "responses")]
+#[tokio::test]
+async fn responses_prepare_maps_image_fields_and_passes_detail_through() {
+    let backend = responses_backend(&MockServer::start().await);
+    let request = GenerationRequest::new(
+        "gpt-5.6",
+        vec![Message::user_parts(vec![
+            ContentPart::Text {
+                text: "describe".to_string(),
+            },
+            ContentPart::Image {
+                source: ImageSource::Url {
+                    url: "https://example.com/cat.png".to_string(),
+                },
+                detail: Some(ImageDetail::High),
+            },
+            ContentPart::Image {
+                source: ImageSource::Base64 {
+                    data: "aGVsbG8=".to_string(),
+                    media_type: "image/jpeg".to_string(),
+                },
+                detail: None,
+            },
+            ContentPart::Image {
+                source: ImageSource::FileId {
+                    file_id: "file-abc".to_string(),
+                },
+                detail: Some(ImageDetail::Unknown("hd".to_string())),
+            },
+        ])],
+    );
+
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    let content = &parsed["input"][0]["content"];
+    assert_eq!(content[0]["type"], "input_text");
+    assert_eq!(content[1]["type"], "input_image");
+    assert_eq!(content[1]["image_url"], "https://example.com/cat.png");
+    assert_eq!(content[1]["detail"], "high");
+    assert_eq!(content[2]["image_url"], "data:image/jpeg;base64,aGVsbG8=");
+    assert!(content[2].get("detail").is_none());
+    assert_eq!(content[3]["file_id"], "file-abc");
+    assert_eq!(content[3]["detail"], "hd");
+}
+
+#[cfg(feature = "deepseek")]
+#[tokio::test]
+async fn deepseek_prepare_maps_multimodal_content() {
+    let backend = deepseek_backend(&MockServer::start().await);
+    let request = GenerationRequest::new(
+        "deepseek-v4-pro",
+        vec![Message::user_parts(vec![
+            ContentPart::Text {
+                text: "describe".to_string(),
+            },
+            ContentPart::Image {
+                source: ImageSource::Url {
+                    url: "https://example.com/cat.png".to_string(),
+                },
+                detail: Some(ImageDetail::Low),
+            },
+            ContentPart::Image {
+                source: ImageSource::Base64 {
+                    data: "aGVsbG8=".to_string(),
+                    media_type: "image/png".to_string(),
+                },
+                detail: None,
+            },
+        ])],
+    );
+
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    let content = &parsed["messages"][0]["content"];
+    assert!(content.is_array());
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "image_url");
+    assert_eq!(
+        content[1]["image_url"]["url"],
+        "https://example.com/cat.png"
+    );
+    assert_eq!(content[1]["image_url"]["detail"], "low");
+    assert_eq!(
+        content[2]["image_url"]["url"],
+        "data:image/png;base64,aGVsbG8="
+    );
+    assert!(content[2]["image_url"].get("detail").is_none());
+}
+
+#[cfg(feature = "openai-compat")]
+#[tokio::test]
+async fn openai_compat_prepare_rejects_file_id_image_source() {
+    let backend = openai_backend(&MockServer::start().await);
+    let request = GenerationRequest::new(
+        "gpt-4.1-mini",
+        vec![Message::user_parts(vec![ContentPart::Image {
+            source: ImageSource::FileId {
+                file_id: "file-abc".to_string(),
+            },
+            detail: None,
+        }])],
+    );
+
+    let error = backend.prepare(request).unwrap_err();
+    assert!(matches!(error, BackendError::InvalidRequest(_)));
+}
+
+#[cfg(feature = "deepseek")]
+#[tokio::test]
+async fn deepseek_prepare_rejects_file_id_image_source() {
+    let backend = deepseek_backend(&MockServer::start().await);
+    let request = GenerationRequest::new(
+        "deepseek-v4-pro",
+        vec![Message::user_parts(vec![ContentPart::Image {
+            source: ImageSource::FileId {
+                file_id: "file-abc".to_string(),
+            },
+            detail: None,
+        }])],
+    );
+
+    let error = backend.prepare(request).unwrap_err();
+    assert!(matches!(error, BackendError::InvalidRequest(_)));
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_send_preserves_raw_response_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5",
+            "content": [{ "type": "text", "text": "raw body stays reachable" }],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": { "input_tokens": 1, "output_tokens": 1 }
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = anthropic_backend(&server);
+    let prepared = backend
+        .prepare(
+            GenerationRequest::new("claude-opus-5", vec![Message::user("hi")]).with_max_tokens(256),
+        )
+        .unwrap();
+
+    // send() hands back the raw reqwest::Response — callers may read the
+    // original body bytes without going through parse().
+    let response = backend.send(prepared).await.unwrap();
+    assert!(response.status().is_success());
+    let body = response.bytes().await.unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(parsed["id"], "msg_1");
+    assert_eq!(parsed["content"][0]["text"], "raw body stays reachable");
+}
+
+#[cfg(feature = "openai-compat")]
+#[tokio::test]
+async fn openai_compat_roundtrips_multimodal_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-mm",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gpt-4.1-mini",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "a cat"}
+            }]
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = openai_backend(&server);
+    let prepared = backend
+        .prepare(GenerationRequest::new(
+            "gpt-4.1-mini",
+            vec![Message::user_parts(vec![
+                ContentPart::Text {
+                    text: "what is it?".to_string(),
+                },
+                ContentPart::Image {
+                    source: ImageSource::Url {
+                        url: "https://example.com/cat.png".to_string(),
+                    },
+                    detail: Some(ImageDetail::Low),
+                },
+            ])],
+        ))
+        .unwrap();
+    let response = backend.send(prepared).await.unwrap();
+    let generation = backend.parse(response).await.unwrap();
+
+    assert_eq!(generation.text(), Some("a cat"));
+}
+
+#[cfg(feature = "deepseek")]
+#[tokio::test]
+async fn deepseek_roundtrips_multimodal_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "chatcmpl-mm",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "a cat"}
+            }]
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = deepseek_backend(&server);
+    let prepared = backend
+        .prepare(GenerationRequest::new(
+            "deepseek-v4-pro",
+            vec![Message::user_parts(vec![
+                ContentPart::Text {
+                    text: "what is it?".to_string(),
+                },
+                ContentPart::Image {
+                    source: ImageSource::Url {
+                        url: "https://example.com/cat.png".to_string(),
+                    },
+                    detail: Some(ImageDetail::Low),
+                },
+            ])],
+        ))
+        .unwrap();
+    let response = backend.send(prepared).await.unwrap();
+    let generation = backend.parse(response).await.unwrap();
+
+    assert_eq!(generation.text(), Some("a cat"));
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_roundtrips_multimodal_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-opus-5",
+            "content": [{ "type": "text", "text": "a cat" }],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": { "input_tokens": 1, "output_tokens": 1 }
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = anthropic_backend(&server);
+    let prepared = backend
+        .prepare(
+            GenerationRequest::new(
+                "claude-opus-5",
+                vec![Message::user_parts(vec![
+                    ContentPart::Text {
+                        text: "what is it?".to_string(),
+                    },
+                    ContentPart::Image {
+                        source: ImageSource::Url {
+                            url: "https://example.com/cat.png".to_string(),
+                        },
+                        detail: None,
+                    },
+                ])],
+            )
+            .with_max_tokens(256),
+        )
+        .unwrap();
+    let response = backend.send(prepared).await.unwrap();
+    let generation = backend.parse(response).await.unwrap();
+
+    assert_eq!(generation.text(), Some("a cat"));
+}
+
+#[cfg(feature = "responses")]
+#[tokio::test]
+async fn responses_roundtrips_multimodal_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "resp_1",
+            "object": "response",
+            "created_at": 1,
+            "status": "completed",
+            "model": "gpt-5.6",
+            "output": [{
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                    { "type": "output_text", "text": "a cat", "annotations": [] }
+                ]
+            }],
+            "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 }
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = responses_backend(&server);
+    let prepared = backend
+        .prepare(GenerationRequest::new(
+            "gpt-5.6",
+            vec![Message::user_parts(vec![
+                ContentPart::Text {
+                    text: "what is it?".to_string(),
+                },
+                ContentPart::Image {
+                    source: ImageSource::Url {
+                        url: "https://example.com/cat.png".to_string(),
+                    },
+                    detail: None,
+                },
+            ])],
+        ))
+        .unwrap();
+    let response = backend.send(prepared).await.unwrap();
+    let generation = backend.parse(response).await.unwrap();
+
+    assert_eq!(generation.text(), Some("a cat"));
+}
+
+#[cfg(feature = "openai-compat")]
+#[tokio::test]
+async fn openai_compat_prepare_maps_multimodal_content() {
+    let backend = openai_backend(&MockServer::start().await);
+    let request = GenerationRequest::new(
+        "gpt-4.1-mini",
+        vec![Message::user_parts(vec![
+            ContentPart::Text {
+                text: "describe".to_string(),
+            },
+            ContentPart::Image {
+                source: ImageSource::Url {
+                    url: "https://example.com/cat.png".to_string(),
+                },
+                detail: Some(ImageDetail::Low),
+            },
+            ContentPart::Image {
+                source: ImageSource::Base64 {
+                    data: "aGVsbG8=".to_string(),
+                    media_type: "image/png".to_string(),
+                },
+                detail: None,
+            },
+        ])],
+    );
+
+    let prepared = backend.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    let message = &parsed["messages"][0];
+    assert_eq!(message["role"], "user");
+    let content = &message["content"];
+    assert!(content.is_array());
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "image_url");
+    assert_eq!(
+        content[1]["image_url"]["url"],
+        "https://example.com/cat.png"
+    );
+    assert_eq!(content[1]["image_url"]["detail"], "low");
+    assert_eq!(
+        content[2]["image_url"]["url"],
+        "data:image/png;base64,aGVsbG8="
+    );
+    assert!(content[2]["image_url"].get("detail").is_none());
 }

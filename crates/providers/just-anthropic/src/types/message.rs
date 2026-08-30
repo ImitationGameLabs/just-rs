@@ -134,21 +134,51 @@ pub enum ImageSource {
     Url {
         url: String,
     },
+    File {
+        file_id: String,
+    },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ImageMediaType {
-    #[serde(rename = "image/jpeg")]
     Jpeg,
-    #[serde(rename = "image/png")]
     Png,
-    #[serde(rename = "image/gif")]
     Gif,
-    #[serde(rename = "image/webp")]
     Webp,
-    #[serde(other)]
-    Unknown,
+    /// Unrecognized media type, preserved verbatim for lossless round-tripping.
+    Unknown(String),
+}
+
+impl Serialize for ImageMediaType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let value = match self {
+            Self::Jpeg => "image/jpeg",
+            Self::Png => "image/png",
+            Self::Gif => "image/gif",
+            Self::Webp => "image/webp",
+            Self::Unknown(value) => value.as_str(),
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for ImageMediaType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "image/jpeg" => Self::Jpeg,
+            "image/png" => Self::Png,
+            "image/gif" => Self::Gif,
+            "image/webp" => Self::Webp,
+            _ => Self::Unknown(value.clone()),
+        })
+    }
 }
 
 /// Source of a document content block (PDF or plain text).
@@ -378,5 +408,27 @@ impl Message {
             ContentBlock::Thinking(thinking) => Some(thinking),
             _ => None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ImageMediaType;
+
+    #[test]
+    fn image_media_type_preserves_unknown_values() {
+        assert_eq!(
+            serde_json::to_value(ImageMediaType::Unknown("image/heic".to_owned())).unwrap(),
+            serde_json::json!("image/heic")
+        );
+        let back: ImageMediaType = serde_json::from_value(serde_json::json!("image/heic")).unwrap();
+        assert_eq!(back, ImageMediaType::Unknown("image/heic".to_owned()));
+
+        assert_eq!(
+            serde_json::to_value(ImageMediaType::Png).unwrap(),
+            serde_json::json!("image/png")
+        );
+        let back: ImageMediaType = serde_json::from_value(serde_json::json!("image/png")).unwrap();
+        assert_eq!(back, ImageMediaType::Png);
     }
 }

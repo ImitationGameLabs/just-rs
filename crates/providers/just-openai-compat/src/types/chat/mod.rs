@@ -9,7 +9,8 @@ mod response;
 mod shared;
 
 pub use request::{
-    ChatCompletionRequest, ChatMessage, TextMessage, ToolCallsMessage, ToolResultMessage,
+    ChatCompletionRequest, ChatMessage, ContentPart, ImageUrlSource, MessageContent, TextMessage,
+    ToolCallsMessage, ToolResultMessage,
 };
 pub use response::{
     AssistantMessage, AssistantRole, ChatCompletion, ChatCompletionChoice, ChatCompletionChunk,

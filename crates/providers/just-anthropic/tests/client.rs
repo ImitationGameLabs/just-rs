@@ -3,7 +3,7 @@ use just_anthropic::{
     AnthropicClient, Error,
     types::{
         event::{ContentBlockDelta, StreamEvent},
-        message::{ContentBlock, MessageParam},
+        message::{ContentBlock, ContentBlockParam, ImageSource, MessageParam},
         request::{CountTokensRequest, CreateMessageRequest},
         thinking::ThinkingConfig,
         tool::{Tool, ToolChoice},
@@ -597,4 +597,32 @@ async fn deserializes_tool_use_response() {
     assert_eq!(call.name, "get_weather");
     assert_eq!(call.input, json!({ "city": "Paris" }));
     assert!(matches!(message.content[0], ContentBlock::ToolUse(_)));
+}
+
+#[test]
+fn prepare_serializes_file_id_image_source() {
+    let client = AnthropicClient::builder()
+        .api_key("test-key")
+        .base_url("https://api.anthropic.com/v1")
+        .build()
+        .unwrap();
+    let request = CreateMessageRequest::new(
+        "claude-opus-5",
+        vec![MessageParam::user_blocks(vec![ContentBlockParam::Image {
+            source: ImageSource::File {
+                file_id: "file_abc123".to_string(),
+            },
+            cache_control: None,
+        }])],
+        256,
+    );
+
+    let prepared = client.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    let block = &parsed["messages"][0]["content"][0];
+    assert_eq!(block["type"], "image");
+    assert_eq!(block["source"]["type"], "file");
+    assert_eq!(block["source"]["file_id"], "file_abc123");
 }

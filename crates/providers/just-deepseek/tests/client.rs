@@ -2,7 +2,10 @@ use futures_util::StreamExt;
 use just_common::error::TransportError;
 use just_deepseek::{
     ChatCompletionStream, DeepSeekClient, Error,
-    types::chat::{AssistantRole, ChatCompletionRequest, ChatMessage},
+    types::chat::{
+        AssistantRole, ChatCompletionRequest, ChatMessage, ContentPart, ImageUrlSource,
+        MessageContent, TextMessage,
+    },
 };
 use serde_json::json;
 use wiremock::{
@@ -328,4 +331,46 @@ async fn lists_models_via_injected_http_client() {
 
     let response = client_with_http(&server).list_models().await.unwrap();
     assert_eq!(response.data[0].id, "deepseek-v4-pro");
+}
+
+#[test]
+fn prepare_serializes_multimodal_content_array() {
+    let client = DeepSeekClient::builder()
+        .api_key("test-key")
+        .base_url("https://api.deepseek.com")
+        .build()
+        .unwrap();
+    let request = ChatCompletionRequest::new(
+        "deepseek-v4-pro",
+        vec![ChatMessage::Message(TextMessage {
+            role: "user".to_string(),
+            content: MessageContent::Parts(vec![
+                ContentPart::Text {
+                    text: "what is it?".to_string(),
+                },
+                ContentPart::ImageUrl {
+                    image_url: ImageUrlSource {
+                        url: "https://example.com/cat.png".to_string(),
+                        detail: Some("low".to_string()),
+                    },
+                },
+            ]),
+            name: None,
+            reasoning_content: None,
+        })],
+    );
+
+    let prepared = client.prepare(request).unwrap();
+    let body = prepared.body().and_then(|b| b.as_bytes()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(body).unwrap();
+
+    let content = &parsed["messages"][0]["content"];
+    assert!(content.is_array());
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "image_url");
+    assert_eq!(
+        content[1]["image_url"]["url"],
+        "https://example.com/cat.png"
+    );
+    assert_eq!(content[1]["image_url"]["detail"], "low");
 }

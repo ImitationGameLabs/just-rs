@@ -19,8 +19,68 @@ pub enum MessageContent {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentPart {
-    Text { text: String },
-    Image { image_url: String },
+    Text {
+        text: String,
+    },
+    Image {
+        source: ImageSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<ImageDetail>,
+    },
+}
+
+/// Where the pixels of an image content part come from.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ImageSource {
+    Url { url: String },
+    Base64 { data: String, media_type: String },
+    FileId { file_id: String },
+}
+
+/// Rendering detail hint for an image input.
+///
+/// Unrecognized values are preserved verbatim, so a deserialized message
+/// round-trips without losing what the original sender specified.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ImageDetail {
+    Auto,
+    Low,
+    High,
+    Original,
+    Unknown(String),
+}
+
+impl Serialize for ImageDetail {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let value = match self {
+            Self::Auto => "auto",
+            Self::Low => "low",
+            Self::High => "high",
+            Self::Original => "original",
+            Self::Unknown(value) => value.as_str(),
+        };
+        serializer.serialize_str(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for ImageDetail {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "auto" => Self::Auto,
+            "low" => Self::Low,
+            "high" => Self::High,
+            "original" => Self::Original,
+            _ => Self::Unknown(value.clone()),
+        })
+    }
 }
 
 /// Assistant message emitted by the model.

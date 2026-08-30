@@ -11,7 +11,10 @@ mod response;
 mod shared;
 mod stream;
 
-pub use message::{AssistantMessage, ContentPart, Message, MessageContent, Reasoning, ToolCall};
+pub use message::{
+    AssistantMessage, ContentPart, ImageDetail, ImageSource, Message, MessageContent, Reasoning,
+    ToolCall,
+};
 pub use request::GenerationRequest;
 pub use response::GenerationResponse;
 pub use shared::{
@@ -26,9 +29,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        AssistantMessage, ContentPart, FinishReason, GenerationEvent, GenerationRequest, Message,
-        Reasoning, ReasoningEffort, ResponseFormat, ResponseFormatType, ToolCall, ToolCallDelta,
-        ToolChoice, ToolChoiceMode,
+        AssistantMessage, ContentPart, FinishReason, GenerationEvent, GenerationRequest,
+        ImageDetail, ImageSource, Message, Reasoning, ReasoningEffort, ResponseFormat,
+        ResponseFormatType, ToolCall, ToolCallDelta, ToolChoice, ToolChoiceMode,
     };
 
     #[test]
@@ -111,7 +114,10 @@ mod tests {
                 text: "What is this?".to_owned(),
             },
             ContentPart::Image {
-                image_url: "https://example.com/cat.png".to_owned(),
+                source: ImageSource::Url {
+                    url: "https://example.com/cat.png".to_owned(),
+                },
+                detail: Some(ImageDetail::High),
             },
         ]);
 
@@ -121,14 +127,91 @@ mod tests {
         assert_eq!(json["content"][0]["type"], "text");
         assert_eq!(json["content"][1]["type"], "image");
         assert_eq!(
-            json["content"][1]["image_url"],
+            json["content"][1]["source"]["url"],
             "https://example.com/cat.png"
         );
+        assert_eq!(json["content"][1]["detail"], "high");
         assert!(matches!(
             message.content_parts(),
             Some(parts) if parts.len() == 2
         ));
         assert_eq!(message.content(), None);
+    }
+
+    #[test]
+    fn serializes_base64_and_file_id_image_sources() {
+        let message = Message::user_parts(vec![
+            ContentPart::Image {
+                source: ImageSource::Base64 {
+                    data: "aGVsbG8=".to_owned(),
+                    media_type: "image/png".to_owned(),
+                },
+                detail: None,
+            },
+            ContentPart::Image {
+                source: ImageSource::FileId {
+                    file_id: "file-123".to_owned(),
+                },
+                detail: None,
+            },
+        ]);
+
+        let json = serde_json::to_value(&message).unwrap();
+
+        assert_eq!(json["content"][0]["source"]["data"], "aGVsbG8=");
+        assert_eq!(json["content"][0]["source"]["media_type"], "image/png");
+        assert!(json["content"][0].get("detail").is_none());
+        assert_eq!(json["content"][1]["source"]["file_id"], "file-123");
+    }
+
+    #[test]
+    fn image_parts_round_trip_all_sources() {
+        let parts = vec![
+            ContentPart::Image {
+                source: ImageSource::Url {
+                    url: "https://example.com/cat.png".to_owned(),
+                },
+                detail: Some(ImageDetail::Low),
+            },
+            ContentPart::Image {
+                source: ImageSource::Base64 {
+                    data: "aGVsbG8=".to_owned(),
+                    media_type: "image/jpeg".to_owned(),
+                },
+                detail: None,
+            },
+            ContentPart::Image {
+                source: ImageSource::FileId {
+                    file_id: "file-123".to_owned(),
+                },
+                detail: Some(ImageDetail::Original),
+            },
+        ];
+
+        let json = serde_json::to_value(&parts).unwrap();
+        let back: Vec<ContentPart> = serde_json::from_value(json).unwrap();
+        assert_eq!(back, parts);
+    }
+
+    #[test]
+    fn image_detail_preserves_unknown_values() {
+        assert_eq!(
+            serde_json::to_value(ImageDetail::Unknown("hd".to_owned())).unwrap(),
+            json!("hd")
+        );
+        let back: ImageDetail = serde_json::from_value(json!("hd")).unwrap();
+        assert_eq!(back, ImageDetail::Unknown("hd".to_owned()));
+
+        for (wire, known) in [
+            ("auto", ImageDetail::Auto),
+            ("low", ImageDetail::Low),
+            ("high", ImageDetail::High),
+            ("original", ImageDetail::Original),
+        ] {
+            assert_eq!(serde_json::to_value(&known).unwrap(), json!(wire));
+            let back: ImageDetail = serde_json::from_value(json!(wire)).unwrap();
+            assert_eq!(back, known);
+        }
     }
 
     #[test]
