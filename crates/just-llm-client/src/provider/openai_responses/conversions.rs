@@ -49,8 +49,9 @@ pub(crate) fn extract_instructions(
             client_gen::Message::System {
                 content: client_gen::MessageContent::Parts(_),
             } => {
-                return Err(BackendError::invalid_request(
-                    "Responses instructions require plain-text system content",
+                return Err(BackendError::unserializable(
+                    crate::family::OPENAI_RESPONSES,
+                    "instructions require plain-text system content",
                 ));
             }
             _ => unreachable!("leading block is all system messages"),

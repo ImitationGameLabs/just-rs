@@ -56,8 +56,9 @@ pub(crate) fn extract_system(
                             all_text.push('\n');
                         }
                         client_gen::ContentPart::Image { .. } => {
-                            return Err(BackendError::invalid_request(
-                                "Anthropic system prompts must be plain text",
+                            return Err(BackendError::unserializable(
+                                crate::family::ANTHROPIC,
+                                "system prompts must be plain text",
                             ));
                         }
                     }
@@ -382,7 +383,9 @@ impl From<just_anthropic::types::message::Message> for client_gen::GenerationRes
                             .unwrap_or_else(|_| "{}".to_owned()),
                     });
                 }
-                ContentBlock::Unknown => {}
+                ContentBlock::Unknown => {
+                    tracing::debug!("dropped unknown anthropic content block");
+                }
             }
         }
 

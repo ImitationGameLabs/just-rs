@@ -35,7 +35,8 @@ fn content_to_wire(
                                 format!("data:{media_type};base64,{data}")
                             }
                             client_gen::ImageSource::FileId { .. } => {
-                                return Err(BackendError::invalid_request(
+                                return Err(BackendError::unserializable(
+                                    crate::family::OPENAI_COMPATIBLE,
                                     "file-id image sources have no chat-completions representation",
                                 ));
                             }

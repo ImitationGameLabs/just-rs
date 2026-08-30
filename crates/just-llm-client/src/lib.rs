@@ -80,7 +80,10 @@ pub mod types;
 pub use capability::{
     Balance, CapabilityNegotiation, GenerationStream, Identifiable, ModelCatalog,
 };
-pub use error::{BackendConstructError, BackendError, Capability, CapabilityError};
+pub use error::{
+    BackendConstructError, BackendError, Capability, CapabilityError, ProviderRejection,
+    provider_rejection,
+};
 pub use just_common::error::{ProviderError, TransportError, captured_body};
 pub use just_common::transport::http::{build_client, endpoint_url, ensure_success, parse_json};
 pub use just_common::transport::sse::JsonEventStream;

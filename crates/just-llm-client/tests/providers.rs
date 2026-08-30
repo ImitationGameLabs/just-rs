@@ -35,9 +35,10 @@ use just_llm_client::types::generation::{ToolChoice, ToolChoiceMode};
     feature = "anthropic"
 ))]
 use just_llm_client::{
-    LlmBackend,
+    LlmBackend, captured_body,
     error::BackendError,
-    types::generation::{GenerationEvent, GenerationRequest, Message},
+    provider_rejection,
+    types::generation::{GenerationEvent, GenerationRequest, Message, MessageContent},
 };
 #[cfg(any(
     feature = "deepseek",
@@ -1894,7 +1895,7 @@ async fn openai_compat_prepare_rejects_file_id_image_source() {
     );
 
     let error = backend.prepare(request).unwrap_err();
-    assert!(matches!(error, BackendError::InvalidRequest(_)));
+    assert!(matches!(error, BackendError::Unserializable { .. }));
 }
 
 #[cfg(feature = "deepseek")]
@@ -1912,7 +1913,7 @@ async fn deepseek_prepare_rejects_file_id_image_source() {
     );
 
     let error = backend.prepare(request).unwrap_err();
-    assert!(matches!(error, BackendError::InvalidRequest(_)));
+    assert!(matches!(error, BackendError::Unserializable { .. }));
 }
 
 #[cfg(feature = "anthropic")]
@@ -2177,4 +2178,72 @@ async fn openai_compat_prepare_maps_multimodal_content() {
         "data:image/png;base64,aGVsbG8="
     );
     assert!(content[2]["image_url"].get("detail").is_none());
+}
+
+#[cfg(feature = "openai-compat")]
+#[tokio::test]
+async fn openai_compat_surfaces_provider_rejection_from_error_body() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": {
+                "code": "image_invalid",
+                "type": "invalid_request_error"
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = openai_backend(&server);
+    let error = backend
+        .generate(GenerationRequest::new(
+            "gpt-4.1-mini",
+            vec![Message::user_parts(vec![ContentPart::Image {
+                source: ImageSource::Url {
+                    url: "https://example.com/cat.png".to_string(),
+                },
+                detail: None,
+            }])],
+        ))
+        .await
+        .unwrap_err();
+
+    let rejection = provider_rejection(&error).expect("http rejection must be reachable");
+    assert_eq!(rejection.status, reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(rejection.code.as_deref(), Some("image_invalid"));
+    assert_eq!(
+        rejection.error_type.as_deref(),
+        Some("invalid_request_error")
+    );
+
+    // The original body is still recoverable verbatim via captured_body.
+    let body = captured_body(&error).expect("error body must be captured");
+    let value: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(value["error"]["code"], "image_invalid");
+    assert_eq!(value["error"]["type"], "invalid_request_error");
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_prepare_rejects_system_image_parts_as_unserializable() {
+    let backend = anthropic_backend(&MockServer::start().await);
+    let request = GenerationRequest::new(
+        "claude-opus-5",
+        vec![
+            Message::System {
+                content: MessageContent::Parts(vec![ContentPart::Image {
+                    source: ImageSource::Url {
+                        url: "https://example.com/cat.png".to_string(),
+                    },
+                    detail: None,
+                }]),
+            },
+            Message::user("hi"),
+        ],
+    )
+    .with_max_tokens(256);
+
+    let error = backend.prepare(request).unwrap_err();
+    assert!(matches!(error, BackendError::Unserializable { .. }));
 }

@@ -14,6 +14,9 @@ use std::{error::Error as StdError, fmt};
 
 use thiserror::Error;
 
+use just_common::error::TransportError;
+use reqwest::StatusCode;
+
 /// Boxed provider error source carried by [`BackendError::Provider`] and
 /// [`BackendConstructError::Provider`].
 ///
@@ -195,6 +198,19 @@ pub enum BackendError {
         #[source]
         source: BoxError,
     },
+    /// The request cannot be represented on this provider's wire (pre-flight; no IO).
+    ///
+    /// Distinct from [`BackendError::Serialization`]: that reports a `serde` mechanism
+    /// failure, this one reports a semantic mismatch - the request is well-formed but
+    /// expresses something this provider's wire cannot carry (e.g. a file-id image
+    /// source on a chat-completions endpoint).
+    #[error("request cannot be serialized for {family}: {message}")]
+    Unserializable {
+        /// Backend family.
+        family: &'static str,
+        /// What could not be represented, and why.
+        message: String,
+    },
 }
 
 impl BackendError {
@@ -218,11 +234,81 @@ impl BackendError {
             source: Box::new(source),
         }
     }
+
+    /// Creates a wire-unrepresentable-request error (pre-flight; no IO).
+    pub fn unserializable(family: &'static str, message: impl Into<String>) -> Self {
+        Self::Unserializable {
+            family,
+            message: message.into(),
+        }
+    }
+}
+
+/// A provider-side rejection lifted from an HTTP error response.
+///
+/// [`status`](ProviderRejection::status) is always present once a rejection exists;
+/// [`code`](ProviderRejection::code) and [`error_type`](ProviderRejection::error_type)
+/// carry the provider's own `error.code` / `error.type` values when its response body
+/// was JSON of the common `{"error": {...}}` shape.
+///
+/// The raw response body is deliberately not carried here: it always remains
+/// reachable, verbatim, via [`captured_body`](crate::captured_body).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderRejection {
+    /// HTTP status the provider answered with.
+    pub status: StatusCode,
+    /// Provider-native error code (`error.code`), when present.
+    pub code: Option<String>,
+    /// Provider-native error type (`error.type`), when present.
+    pub error_type: Option<String>,
+}
+
+/// Walks `error`'s source chain (the same walk as [`captured_body`](crate::captured_body)) to the captured
+/// HTTP status of a provider error response and lifts the provider's own
+/// `error.code` / `error.type` out of the body when it is JSON of the common wrapped
+/// shape. Returns `None` when no HTTP status is reachable, i.e. the error did not
+/// originate from a provider response (pre-flight [`BackendError::InvalidRequest`] or
+/// [`BackendError::Unserializable`]).
+pub fn provider_rejection(error: &BackendError) -> Option<ProviderRejection> {
+    let mut current: Option<&(dyn StdError + 'static)> = Some(error);
+    while let Some(e) = current {
+        if let Some(TransportError::HttpStatus { status, body }) =
+            e.downcast_ref::<TransportError>()
+        {
+            let (code, error_type) = lift_provider_error_fields(body);
+            return Some(ProviderRejection {
+                status: *status,
+                code,
+                error_type,
+            });
+        }
+        current = e.source();
+    }
+    None
+}
+
+/// Extracts `error.code` / `error.type` from a JSON error body; `None` for both when
+/// the body is not JSON of that shape (status alone still identifies the rejection).
+fn lift_provider_error_fields(body: &str) -> (Option<String>, Option<String>) {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return (None, None);
+    };
+    let error = &value["error"];
+    let code = error
+        .get("code")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let error_type = error
+        .get("type")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    (code, error_type)
 }
 
 #[cfg(test)]
 mod tests {
     use super::BackendError;
+    use super::provider_rejection;
     use crate::captured_body;
     use just_common::error::{ProviderError, TransportError};
     use reqwest::StatusCode;
@@ -241,5 +327,49 @@ mod tests {
             captured_body(&be),
             Some(r#"{"error":"context_length_exceeded"}"#)
         );
+    }
+
+    #[test]
+    fn provider_rejection_lifts_status_code_and_error_type() {
+        let te = TransportError::HttpStatus {
+            status: StatusCode::BAD_REQUEST,
+            body: r#"{"error":{"code":"image_invalid","type":"invalid_request_error"}}"#.into(),
+        };
+        let be = BackendError::provider("openai-compatible", ProviderError::Transport(te));
+
+        let rejection = provider_rejection(&be).expect("http rejection must be reachable");
+        assert_eq!(rejection.status, StatusCode::BAD_REQUEST);
+        assert_eq!(rejection.code.as_deref(), Some("image_invalid"));
+        assert_eq!(
+            rejection.error_type.as_deref(),
+            Some("invalid_request_error")
+        );
+
+        // The raw body stays verbatim behind captured_body, not on the rejection.
+        assert_eq!(
+            captured_body(&be),
+            Some(r#"{"error":{"code":"image_invalid","type":"invalid_request_error"}}"#)
+        );
+    }
+
+    #[test]
+    fn provider_rejection_without_json_body_yields_status_only() {
+        let te = TransportError::HttpStatus {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            body: "gateway exploded".into(),
+        };
+        let be = BackendError::provider("openai-compatible", ProviderError::Transport(te));
+
+        let rejection = provider_rejection(&be).expect("http rejection must be reachable");
+        assert_eq!(rejection.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(rejection.code, None);
+        assert_eq!(rejection.error_type, None);
+    }
+
+    #[test]
+    fn provider_rejection_absent_for_pre_flight_errors() {
+        let be = BackendError::unserializable("deepseek", "file-id image source");
+        assert!(provider_rejection(&be).is_none());
+        assert!(matches!(be, BackendError::Unserializable { .. }));
     }
 }
