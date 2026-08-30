@@ -127,15 +127,31 @@ pub enum FinishReason {
 
 /// Token usage metadata.
 ///
-/// Cache fields are optional because some providers cannot report them faithfully.
+/// Cache accounting follows each provider's wire contract, with the
+/// unified meaning: `cache_read_tokens` is the prompt portion served from
+/// cache (the discount-bearing quantity) and `cache_write_tokens` is the
+/// portion persisted to the cache by this request (the surcharge-bearing
+/// quantity). Both are optional because some providers cannot report them
+/// faithfully: `None` means unreported (or no such concept), `Some(0)` is
+/// a wire-reported zero.
+///
+/// Provider caveats: Anthropic counts `input_tokens` excluding both cache
+/// quantities (its `total_tokens` likewise), while the other providers
+/// report cache reads as a subset of `prompt_tokens`. DeepSeek's cache is
+/// on by default and its uncached (miss) portion is newly persisted on
+/// each request at prefix-unit granularity, billed at 1x — hence
+/// `cache_read_tokens + cache_write_tokens == prompt_tokens` by contract
+/// ("It equals prompt_cache_hit_tokens + prompt_cache_miss_tokens.");
+/// Anthropic instead requires explicit `cache_control` markers and bills
+/// writes at 1.25x.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Usage {
     pub completion_tokens: u32,
     pub prompt_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_hit_tokens: Option<u32>,
+    pub cache_read_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_cache_miss_tokens: Option<u32>,
+    pub cache_write_tokens: Option<u32>,
     pub total_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_tokens_details: Option<CompletionTokensDetails>,

@@ -313,8 +313,8 @@ impl From<provider_chat::Usage> for client_gen::Usage {
         Self {
             completion_tokens: usage.completion_tokens,
             prompt_tokens: usage.prompt_tokens,
-            prompt_cache_hit_tokens: Some(usage.prompt_cache_hit_tokens),
-            prompt_cache_miss_tokens: Some(usage.prompt_cache_miss_tokens),
+            cache_read_tokens: Some(usage.prompt_cache_hit_tokens),
+            cache_write_tokens: Some(usage.prompt_cache_miss_tokens),
             total_tokens: usage.total_tokens,
             completion_tokens_details: usage.completion_tokens_details.map(|details| {
                 client_gen::CompletionTokensDetails {

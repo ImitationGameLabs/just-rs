@@ -228,8 +228,8 @@ async fn deepseek_adapter_preserves_cache_usage_when_reported() {
         .unwrap();
 
     let usage = response.usage.expect("usage should be present");
-    assert_eq!(usage.prompt_cache_hit_tokens, Some(5));
-    assert_eq!(usage.prompt_cache_miss_tokens, Some(7));
+    assert_eq!(usage.cache_read_tokens, Some(5));
+    assert_eq!(usage.cache_write_tokens, Some(7));
 }
 
 // --- OpenAI-compatible tests ---
@@ -553,8 +553,8 @@ async fn openai_compat_adapter_leaves_unknown_cache_usage_empty() {
         .unwrap();
 
     let usage = response.usage.expect("usage should be present");
-    assert_eq!(usage.prompt_cache_hit_tokens, None);
-    assert_eq!(usage.prompt_cache_miss_tokens, None);
+    assert_eq!(usage.cache_read_tokens, None);
+    assert_eq!(usage.cache_write_tokens, None);
 }
 
 #[cfg(feature = "openai-compat")]
@@ -928,7 +928,7 @@ async fn responses_adapter_maps_generation_with_tools_and_reasoning() {
             ],
             "usage": {
                 "input_tokens": 10,
-                "input_tokens_details": { "cache_write_tokens": 0, "cached_tokens": 0 },
+                "input_tokens_details": { "cache_write_tokens": 128, "cached_tokens": 512 },
                 "output_tokens": 5,
                 "output_tokens_details": { "reasoning_tokens": 2 },
                 "total_tokens": 15
@@ -969,6 +969,9 @@ async fn responses_adapter_maps_generation_with_tools_and_reasoning() {
             .reasoning_tokens,
         Some(2)
     );
+    let cache_usage = response.usage.as_ref().unwrap();
+    assert_eq!(cache_usage.cache_read_tokens, Some(512));
+    assert_eq!(cache_usage.cache_write_tokens, Some(128));
 }
 
 #[cfg(feature = "responses")]
@@ -1352,8 +1355,8 @@ async fn anthropic_adapter_maps_generation_with_tools_and_thinking() {
             "usage": {
                 "input_tokens": 10,
                 "output_tokens": 8,
-                "cache_creation_input_tokens": 0,
-                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 512,
+                "cache_read_input_tokens": 2048,
                 "output_tokens_details": { "thinking_tokens": 3 }
             }
         })))
@@ -1392,6 +1395,9 @@ async fn anthropic_adapter_maps_generation_with_tools_and_thinking() {
             .reasoning_tokens,
         Some(3)
     );
+    let cache_usage = response.usage.as_ref().unwrap();
+    assert_eq!(cache_usage.cache_read_tokens, Some(2048));
+    assert_eq!(cache_usage.cache_write_tokens, Some(512));
 }
 
 #[cfg(feature = "anthropic")]
@@ -1586,5 +1592,135 @@ async fn deepseek_adapter_streams_events() {
         }
     ));
 
+    assert!(stream.next().await.is_none());
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_adapter_maps_usage_without_cache_fields() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "content": [ { "type": "text", "text": "Hello." } ],
+            "model": "claude-opus-5",
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 8
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let backend = anthropic_backend(&server);
+    let response = backend
+        .generate(
+            GenerationRequest::new("claude-opus-5", vec![Message::user("hi")])
+                .with_max_tokens(1024),
+        )
+        .await
+        .unwrap();
+
+    let usage = response.usage.expect("usage should be present");
+    assert_eq!(usage.cache_read_tokens, None);
+    assert_eq!(usage.cache_write_tokens, None);
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_stream_drops_cache_fields_from_message_delta_usage() {
+    let server = MockServer::start().await;
+    let body = concat!(
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-5\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5,\"cache_read_input_tokens\":2048,\"cache_creation_input_tokens\":512}}\n\n",
+        "data: {\"type\":\"message_stop\"}\n\n"
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(body, "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let backend = anthropic_backend(&server);
+    let mut stream = backend
+        .stream_generate(
+            GenerationRequest::new("claude-opus-5", vec![Message::user("hi")])
+                .with_max_tokens(1024),
+        )
+        .await
+        .unwrap();
+
+    let end = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        end,
+        GenerationEvent::End {
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::Stop),
+            ..
+        }
+    ));
+
+    // Characterization pin: the streaming path currently discards the cache
+    // fields carried by message_delta usage (they surface as None).
+    let usage = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        usage,
+        GenerationEvent::Usage { usage } if usage.prompt_tokens == 10 && usage.completion_tokens == 5
+            && usage.cache_read_tokens.is_none()
+            && usage.cache_write_tokens.is_none()
+    ));
+
+    assert!(stream.next().await.is_none());
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_stream_omits_usage_event_without_stream_usage() {
+    let server = MockServer::start().await;
+    let body = concat!(
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-opus-5\",\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null}}\n\n",
+        "data: {\"type\":\"message_stop\"}\n\n"
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/messages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(body, "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let backend = anthropic_backend(&server);
+    let mut stream = backend
+        .stream_generate(
+            GenerationRequest::new("claude-opus-5", vec![Message::user("hi")])
+                .with_max_tokens(1024),
+        )
+        .await
+        .unwrap();
+
+    let end = stream.next().await.unwrap().unwrap();
+    assert!(matches!(
+        end,
+        GenerationEvent::End {
+            finish_reason: Some(just_llm_client::types::generation::FinishReason::Stop),
+            ..
+        }
+    ));
+
+    // No Usage event follows when message_delta carries no usage.
     assert!(stream.next().await.is_none());
 }

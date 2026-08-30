@@ -316,11 +316,11 @@ impl From<provider_chat::Usage> for client_gen::Usage {
         Self {
             completion_tokens: usage.completion_tokens,
             prompt_tokens: usage.prompt_tokens,
-            prompt_cache_hit_tokens: usage
+            cache_read_tokens: usage
                 .prompt_tokens_details
                 .as_ref()
                 .and_then(|details| details.cached_tokens),
-            prompt_cache_miss_tokens: None,
+            cache_write_tokens: None,
             total_tokens: usage.total_tokens,
             completion_tokens_details: usage.completion_tokens_details.map(|details| {
                 client_gen::CompletionTokensDetails {

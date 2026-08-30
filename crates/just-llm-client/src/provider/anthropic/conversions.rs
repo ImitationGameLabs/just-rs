@@ -298,8 +298,8 @@ fn wire_usage_to_client(usage: just_anthropic::types::usage::Usage) -> client_ge
     client_gen::Usage {
         completion_tokens: usage.output_tokens as u32,
         prompt_tokens: usage.input_tokens as u32,
-        prompt_cache_hit_tokens: usage.cache_read_input_tokens.map(|tokens| tokens as u32),
-        prompt_cache_miss_tokens: usage
+        cache_read_tokens: usage.cache_read_input_tokens.map(|tokens| tokens as u32),
+        cache_write_tokens: usage
             .cache_creation_input_tokens
             .map(|tokens| tokens as u32),
         total_tokens: (usage.input_tokens + usage.output_tokens) as u32,

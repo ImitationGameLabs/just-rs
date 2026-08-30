@@ -135,8 +135,8 @@ impl LlmBackend for AnthropicBackend {
                             usage: crate::types::generation::Usage {
                                 completion_tokens: output as u32,
                                 prompt_tokens: input as u32,
-                                prompt_cache_hit_tokens: None,
-                                prompt_cache_miss_tokens: None,
+                                cache_read_tokens: None,
+                                cache_write_tokens: None,
                                 total_tokens: (input + output) as u32,
                                 completion_tokens_details: None,
                             },
